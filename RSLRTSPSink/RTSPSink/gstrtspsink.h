@@ -47,6 +47,8 @@
 #define __GST_RTSP_SINK_H__
 
 #include <gst/gst.h>
+#include <gst/base/gstbasesink.h>
+
 
 G_BEGIN_DECLS
 
@@ -67,16 +69,24 @@ typedef struct _GstRTSPsinkClass GstRTSPsinkClass;
 
 struct _GstRTSPsink
 {
-  GstElement element;
+  //GstElement element;
+  GstBaseSink element; 
 
-  GstPad *sinkpad, *srcpad;
+  GstPad *sinkpad;//, *srcpad;
 
   gboolean silent;
 };
 
+
+static gboolean default_prepare(GstBaseSink * media);
+
+
 struct _GstRTSPsinkClass 
 {
-  GstElementClass parent_class;
+  //GstElementClass parent_class;
+	GstBaseSinkClass parent_class;
+
+  gboolean(*prepare)         (GstRTSPsink *media);
 };
 
 GType gst_rtspsink_get_type (void);

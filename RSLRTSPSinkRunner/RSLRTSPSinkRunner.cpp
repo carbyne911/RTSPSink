@@ -179,6 +179,9 @@ return 0;
 
 int main(int argc, char *argv[])
 {
+
+	GError  *error = NULL;
+
 	gst_init(&argc, &argv);
 
 	GST_DEBUG_CATEGORY_INIT(debug_category, TAG, 0, TAG);
@@ -190,6 +193,59 @@ int main(int argc, char *argv[])
 	GstBus* bus = gst_pipeline_get_bus(GST_PIPELINE(pipeline));
 	guint watch_id = gst_bus_add_watch(bus, bus_call, loop);
 	gst_object_unref(bus);
+
+	//gst_parse_launch(" videotestsrc ! x264enc ! rtph264pay ! rtsp_sink ", &error) ;
+
+	gst_parse_launch(" videotestsrc ! rtsp_sink ", &error);
+
+
+	if (error) {
+	
+		g_print("failed initing pipeline with : %s", error->message) ;
+	}
+
+
+	GstStateChangeReturn returnValue = gst_element_set_state(pipeline, GST_STATE_PLAYING);
+	if (returnValue == GST_STATE_CHANGE_FAILURE) {
+		g_print("Pipe failed to change state.") ;
+	}
+
+	//////////////////////////  create out elements ////////////////////////////
+#if 0 
+	GstElement* videoTestSrc = gst_element_factory_make("videotestsrc", "videotestsrc");
+	VERIFY_ELSE_RETURN_ERROR((NULL != videoTestSrc), "error creating videoTestSrc GstElement");
+
+	GstElement* x264enc = gst_element_factory_make("x264enc", "x264enc");
+	VERIFY_ELSE_RETURN_ERROR((NULL != x264enc), "error creating x264enc GstElement");
+
+	GstElement* rtph264pay = gst_element_factory_make("rtph264pay", "rtph264pay");
+	VERIFY_ELSE_RETURN_ERROR((NULL != rtph264pay), "error creating rtph264pay GstElement");
+
+	GstElement* rtspsink = gst_element_factory_make("rtsp_sink", "rtsp_sink");
+	VERIFY_ELSE_RETURN_ERROR((NULL != rtspsink), "error creating rtspsink GstElement");
+
+
+	gst_bin_add_many(
+		GST_BIN(pipeline),
+		videoTestSrc,
+		x264enc,
+		rtph264pay,
+		rtspsink,
+		NULL);
+
+	// OUT elements linking
+	gboolean result = gst_element_link_many(
+		videoTestSrc,
+		x264enc,
+		rtph264pay,
+		rtspsink,
+		NULL);
+	VERIFY_ELSE_RETURN_ERROR((0 != result), "error linking OUT first elements");
+
+#endif 
+
+
+#if 0
 
 	//////////////////////////  create out elements ////////////////////////////
 
@@ -212,6 +268,7 @@ int main(int argc, char *argv[])
 	VERIFY_ELSE_RETURN_ERROR((NULL != speexAEC), "error creating rtsp_sink GstElement");
 
 
+	
 
 
 
@@ -415,15 +472,7 @@ int main(int argc, char *argv[])
 		}
 		return -1;
 	}
-
-	/*
-	CreateThread(
-	NULL,
-	0,
-	Thread_no_1,
-	NULL,
-	0,
-	NULL);  */
+#endif
 
 	g_main_loop_run(loop);
 	/* clean up */
