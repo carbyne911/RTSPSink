@@ -90,12 +90,12 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_STATIC_CAPS ("ANY")
     );
 
-/*static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
+static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
     GST_STATIC_CAPS ("ANY")
     );
-	*/
+	
 
 
 #define gst_rtspsink_parent_class parent_class
@@ -124,11 +124,11 @@ gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 {
   GObjectClass *gobject_class;
   GstElementClass *gstelement_class;
-  GstBaseSinkClass *gstbase_sink_class;
+ // GstBaseSinkClass *gstbase_sink_class;
 
   gobject_class = (GObjectClass *) klass;
   gstelement_class = (GstElementClass *) klass;
-  gstbase_sink_class = (GstBaseSinkClass *)klass; //GST_BASE_SINK_CLASS(klass);
+  //gstbase_sink_class = (GstBaseSinkClass *)klass; //GST_BASE_SINK_CLASS(klass);
 
 
 
@@ -145,15 +145,14 @@ gst_rtspsink_class_init (GstRTSPsinkClass * klass)
     "FIXME:Generic Template Element",
     "eduards <<user@hostname.org>>");
 
- // gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&src_factory));
-  gst_element_class_add_pad_template (gstelement_class,
-      gst_static_pad_template_get (&sink_factory));
+  gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&src_factory));
+  gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&sink_factory));
 
   klass->prepare = default_prepare; 
 
-  gstbase_sink_class->render = (gst_fake_sink_render);
+//  gstbase_sink_class->render = (gst_fake_sink_render);
 
-  gstbase_sink_class->preroll = (gst_fake_sink_preroll);
+//  gstbase_sink_class->preroll = (gst_fake_sink_preroll);
 
 }
 
@@ -216,14 +215,14 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
   filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink");
   gst_pad_set_event_function (filter->sinkpad,
                               GST_DEBUG_FUNCPTR(gst_rtspsink_sink_event));
- // gst_pad_set_chain_function (filter->sinkpad,    GST_DEBUG_FUNCPTR(gst_rtspsink_chain));
+  gst_pad_set_chain_function (filter->sinkpad,    GST_DEBUG_FUNCPTR(gst_rtspsink_chain));
   GST_PAD_SET_PROXY_CAPS (filter->sinkpad);
   gst_element_add_pad (GST_ELEMENT (filter), filter->sinkpad);
 
-/*  filter->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
+  filter->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
   GST_PAD_SET_PROXY_CAPS (filter->srcpad);
   gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
-  */
+  
   filter->silent = FALSE;
 }
 
@@ -307,10 +306,10 @@ gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   filter = GST_RTSP_SINK (parent);
 
   if (filter->silent == FALSE)
-    g_print ("I'm plugged, therefore I'm in.\n");
+    g_print ("I'm plugged, therefore I'm in. EDU!\n");
 
   /* just push out the incoming buffer without touching it */
- // return gst_pad_push (filter->srcpad, buf);
+  return gst_pad_push (filter->srcpad, buf);
 }
 
 

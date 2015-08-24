@@ -196,7 +196,8 @@ int main(int argc, char *argv[])
 
 	//gst_parse_launch(" videotestsrc ! x264enc ! rtph264pay ! rtsp_sink ", &error) ;
 
-	gst_parse_launch(" videotestsrc ! rtsp_sink ", &error);
+	pipeline = gst_parse_launch(" fakesrc ! rtsp_sink  ! fakesink ", &error);
+	
 
 
 	if (error) {
@@ -246,6 +247,8 @@ int main(int argc, char *argv[])
 
 
 #if 0
+
+
 
 	//////////////////////////  create out elements ////////////////////////////
 
