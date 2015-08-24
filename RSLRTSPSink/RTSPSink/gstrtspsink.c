@@ -99,7 +99,10 @@ static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
 
 
 #define gst_rtspsink_parent_class parent_class
-G_DEFINE_TYPE (GstRTSPsink, gst_rtspsink, GST_TYPE_ELEMENT);
+G_DEFINE_TYPE(GstRTSPsink, gst_rtspsink, GST_TYPE_BASE_SINK);
+//G_DEFINE_TYPE (GstRTSPsink, gst_rtspsink, GST_TYPE_ELEMENT);
+//G_DEFINE_TYPE(GstMySink, gst_my_sink, GST_TYPE_BASE_SINK);
+
 
 static void gst_rtspsink_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec);
@@ -107,7 +110,7 @@ static void gst_rtspsink_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
 
 static gboolean gst_rtspsink_sink_event (GstPad * pad, GstObject * parent, GstEvent * event);
-static GstFlowReturn gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf);
+//static GstFlowReturn gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf);
 
 static GstFlowReturn  gst_fake_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer);
 
@@ -119,25 +122,24 @@ static GstFlowReturn gst_fake_sink_render(GstBaseSink * bsink, GstBuffer * buf);
 
 
 /* initialize the rtsp_sink's class */
-static void
-gst_rtspsink_class_init (GstRTSPsinkClass * klass)
+static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 {
   GObjectClass *gobject_class;
   GstElementClass *gstelement_class;
- // GstBaseSinkClass *gstbase_sink_class;
+  GstBaseSinkClass *gstbase_sink_class;
 
   gobject_class = (GObjectClass *) klass;
   gstelement_class = (GstElementClass *) klass;
-  //gstbase_sink_class = (GstBaseSinkClass *)klass; //GST_BASE_SINK_CLASS(klass);
+  gstbase_sink_class = GST_BASE_SINK_CLASS(klass);  //(GstBaseSinkClass *)klass; //GST_BASE_SINK_CLASS(klass);
 
 
 
   gobject_class->set_property = gst_rtspsink_set_property;
   gobject_class->get_property = gst_rtspsink_get_property;
 
-  g_object_class_install_property (gobject_class, PROP_SILENT,
-      g_param_spec_boolean ("silent", "Silent", "Produce verbose output ?",
-          FALSE, G_PARAM_READWRITE));
+  g_object_class_install_property (gobject_class, PROP_SILENT, 
+	                               g_param_spec_boolean ("silent", "Silent", "Produce verbose output ?",
+								   FALSE, G_PARAM_READWRITE));
 
   gst_element_class_set_details_simple(gstelement_class,
     "RTSPsink",
@@ -145,20 +147,19 @@ gst_rtspsink_class_init (GstRTSPsinkClass * klass)
     "FIXME:Generic Template Element",
     "eduards <<user@hostname.org>>");
 
-  gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&src_factory));
+  //gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&src_factory));
   gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&sink_factory));
 
   klass->prepare = default_prepare; 
 
-//  gstbase_sink_class->render = (gst_fake_sink_render);
+  gstbase_sink_class->render = (gst_fake_sink_render);
 
-//  gstbase_sink_class->preroll = (gst_fake_sink_preroll);
+  gstbase_sink_class->preroll = (gst_fake_sink_preroll);
 
 }
 
 
-static GstFlowReturn
-gst_fake_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
+static GstFlowReturn gst_fake_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
 {
 	GstRTSPsinkClass *sink = (GstRTSPsinkClass* )bsink;
 	return GST_FLOW_OK;
@@ -212,23 +213,35 @@ static gboolean default_prepare(GstBaseSink * media)
  */
 static void gst_rtspsink_init (GstRTSPsink * filter)
 {
-  filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink");
-  gst_pad_set_event_function (filter->sinkpad,
-                              GST_DEBUG_FUNCPTR(gst_rtspsink_sink_event));
-  gst_pad_set_chain_function (filter->sinkpad,    GST_DEBUG_FUNCPTR(gst_rtspsink_chain));
+  filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink0");
+  gst_pad_set_event_function (filter->sinkpad,    GST_DEBUG_FUNCPTR(gst_rtspsink_sink_event));
+  //gst_pad_set_chain_function (filter->sinkpad,    GST_DEBUG_FUNCPTR(gst_rtspsink_chain));
   GST_PAD_SET_PROXY_CAPS (filter->sinkpad);
   gst_element_add_pad (GST_ELEMENT (filter), filter->sinkpad);
 
-  filter->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
-  GST_PAD_SET_PROXY_CAPS (filter->srcpad);
-  gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
+  //filter->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
+  //GST_PAD_SET_PROXY_CAPS (filter->srcpad);
+  //gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
   
   filter->silent = FALSE;
 }
 
 
-static GstFlowReturn gst_fake_sink_render(GstBaseSink * bsink, GstBuffer * buf)
+static GstFlowReturn gst_fake_sink_render(GstBaseSink * bsink, GstBuffer * buffer)
 {
+	GstMapInfo map;
+	char data[4];
+	//buffer = gst_sample_get_buffer(sample);
+	gst_buffer_map(buffer, &map, GST_MAP_READ);
+
+
+	g_print("Data len %d\n", map.size);
+	//g_memcpy(data, map.data, 4);
+	//g_print("Data: %D %D %D %D", data[0], data[1], data[2], data[3] );
+
+
+	gst_buffer_unmap(buffer, &map);
+	//gst_sample_unref(sample);
 
 	return GST_FLOW_OK;
 }
@@ -298,6 +311,7 @@ gst_rtspsink_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
 /* chain function
  * this function does the actual processing
  */
+#if NOT_SINK
 static GstFlowReturn
 gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
 {
@@ -311,6 +325,7 @@ gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
   /* just push out the incoming buffer without touching it */
   return gst_pad_push (filter->srcpad, buf);
 }
+#endif
 
 
 /* entry point to initialize the plug-in

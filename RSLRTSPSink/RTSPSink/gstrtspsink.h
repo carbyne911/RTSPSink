@@ -69,10 +69,10 @@ typedef struct _GstRTSPsinkClass GstRTSPsinkClass;
 
 struct _GstRTSPsink
 {
-  GstElement element;
-  //GstBaseSink element; 
+  //GstElement element;
+  GstBaseSink element; 
 
-  GstPad *sinkpad, *srcpad;
+  GstPad *sinkpad;// , *srcpad;
 
   gboolean silent;
 };
@@ -83,8 +83,8 @@ static gboolean default_prepare(GstBaseSink * media);
 
 struct _GstRTSPsinkClass 
 {
-  GstElementClass parent_class;
-//	GstBaseSinkClass parent_class;
+//  GstElementClass parent_class;
+  GstBaseSinkClass parent_class;
 
   gboolean(*prepare)         (GstRTSPsink *media);
 };
