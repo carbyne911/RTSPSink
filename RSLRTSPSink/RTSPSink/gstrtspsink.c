@@ -61,6 +61,7 @@
 #endif
 
 #include <gst/gst.h>
+#include <gst/rtsp/rtsp.h>
 
 #include "gstrtspsink.h"
 
@@ -112,9 +113,9 @@ static void gst_rtspsink_get_property (GObject * object, guint prop_id,
 static gboolean gst_rtspsink_sink_event (GstPad * pad, GstObject * parent, GstEvent * event);
 //static GstFlowReturn gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf);
 
-static GstFlowReturn  gst_fake_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer);
+static GstFlowReturn  gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer);
 
-static GstFlowReturn gst_fake_sink_render(GstBaseSink * bsink, GstBuffer * buf);
+static GstFlowReturn gst_rtsp_sink_render(GstBaseSink * bsink, GstBuffer * buf);
 
 
 /* GObject vmethod implementations */
@@ -152,16 +153,47 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 
   klass->prepare = default_prepare; 
 
-  gstbase_sink_class->render = (gst_fake_sink_render);
+  gstbase_sink_class->render = (gst_rtsp_sink_render);
 
-  gstbase_sink_class->preroll = (gst_fake_sink_preroll);
+  gstbase_sink_class->preroll = (gst_rtsp_sink_preroll);
 
 }
 
 
-static GstFlowReturn gst_fake_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
+static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
 {
 	GstRTSPsinkClass *sink = (GstRTSPsinkClass* )bsink;
+	GstRTSPResult res; 
+	GstRTSPConnection *conn ;
+	const GstRTSPUrl * url ;
+	GTimeVal timeout;
+	guint8 data[4] = {1,2,3,4};
+	guint size = 4;
+
+
+	const gchar *urlstr = "rtsp://192.168.2.108";
+	int port = 1935;
+	timeout.tv_sec = 1; // set timeout to one second.
+	timeout.tv_usec = 0;
+
+
+
+	// set parameters
+	GstRTSPResult res0 = gst_rtsp_url_parse(urlstr, &url);
+	res0 = gst_rtsp_url_set_port(url, port);
+
+	// create connection 
+	res = gst_rtsp_connection_create(url, &conn);
+	
+	res =  gst_rtsp_connection_connect(conn, &timeout);
+
+
+	res = gst_rtsp_connection_write(conn, data, size, &timeout);
+
+	// close connection 
+	res = gst_rtsp_connection_close(conn);
+
+
 	return GST_FLOW_OK;
 }
 
@@ -227,10 +259,9 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
 }
 
 
-static GstFlowReturn gst_fake_sink_render(GstBaseSink * bsink, GstBuffer * buffer)
+static GstFlowReturn gst_rtsp_sink_render(GstBaseSink * bsink, GstBuffer * buffer)
 {
 	GstMapInfo map;
-	char data[4];
 	//buffer = gst_sample_get_buffer(sample);
 	gst_buffer_map(buffer, &map, GST_MAP_READ);
 
