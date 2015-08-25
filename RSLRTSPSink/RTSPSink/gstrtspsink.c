@@ -153,7 +153,7 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
   //gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&src_factory));
   gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&sink_factory));
 
-  klass->prepare = default_prepare; 
+  //klass->prepare = default_prepare; 
 
   gstbase_sink_class->render = (gst_rtsp_sink_render);
 
@@ -167,14 +167,18 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	GstRTSPsink *sink = (GstRTSPsink*)bsink;
 	GstRTSPResult res; 
 	GstRTSPConnection *conn ;
-	const GstRTSPUrl * url ;
+	GstRTSPUrl * url ;
 	GTimeVal timeout;
 	guint8 data[4] = {1,2,3,4};
 	guint size = 4;
 	GstRTSPMessage  msg = {0};
+	GstSDPMessage *sdp ;
 
 
 	const gchar *url_server_str = "rtsp://192.168.2.108";
+	const gchar *url_server_str_full = "rtsp://192.168.2.108:1935/live/1";
+	const gchar *url_server_ip_str = "192.168.2.104";
+
 	const gchar *url_client_str = "rtsp://192.168.2.104";
 	int port = 1935;
 	timeout.tv_sec = 1; // set timeout to one second.
@@ -182,11 +186,15 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	GstRTSPMethod method = GST_RTSP_OPTIONS;
 	sink->user_agent = "iReporty\n\0" ;
 	sink->debug = TRUE;
-
+	guint num_ports = 1;
+	guint rtp_port = 5006;
 
 	
+	////////////////////// OPTINS START  //////////////////////////////////////////////////////////
+
+
 	// set parameters
-	GstRTSPResult res0 = gst_rtsp_url_parse(url_server_str, &url);
+	GstRTSPResult res0 = gst_rtsp_url_parse((const  guint8*)url_server_str, &url);
 	res0 = gst_rtsp_url_set_port(url, port);
 
 	// create connection 
@@ -205,17 +213,21 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	if (sink->user_agent)
 		gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_USER_AGENT, sink->user_agent);
 
+
+
 	if (sink->debug )
 		gst_rtsp_message_dump(&msg);
 
 
 	res = gst_rtsp_connection_send(conn, &msg, &timeout);
 
+	////////////////////// OPTINS END  //////////////////////////////////////////////////////////
 
+	////////////////////// ANNOUNCE START //////////////////////////////////////////////////////////
 
 
 	method = GST_RTSP_ANNOUNCE;
-	res = gst_rtsp_message_init_request(&msg, method, url_client_str);
+	res = gst_rtsp_message_init_request(&msg, method, url_server_str_full);
 	if (res < 0)
 		return res;
 
@@ -223,6 +235,50 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	if (sink->user_agent)
 		gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_USER_AGENT, sink->user_agent);
 
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_CONTENT_TYPE, "application/sdp");
+
+	// allocate sdp messege buffer... 
+	res = gst_sdp_message_new(&sdp);
+
+	//v=..
+	res = gst_sdp_message_set_version(sdp, "0");
+	//o=...
+	res = gst_sdp_message_set_origin(sdp, "-","0", "0", "IN","IP4" , "null");
+
+	//c=...
+	res = gst_sdp_message_set_connection(sdp, "IN", "IP4", url_server_ip_str, 0, 0);
+	//a=...
+	res = gst_sdp_message_add_attribute(sdp, "recvonly", NULL);
+
+
+	// create media
+	GstSDPMedia *media;
+	res = gst_sdp_media_new(&media);
+	res = gst_sdp_media_init(media);
+
+	//m=...
+	res = gst_sdp_media_set_media(media, "video");
+	
+	res = gst_sdp_media_set_port_info(media, rtp_port, num_ports);
+	res = gst_sdp_media_set_proto( media,"RTP/AVP");
+	res = gst_sdp_media_add_format(media, "96");
+	// insert media into sdp
+	res = gst_sdp_message_add_media(sdp,media);
+
+	//a=...
+	//res = gst_sdp_message_add_attribute(sdp, "fmtp", "96 packetization-mode=1;profile-level-id=420014;sprop-parameter-sets=J0IAFKaBQfE=,KM48gA==;");
+	res = gst_sdp_message_add_attribute(sdp, "fmtp", "96");
+	res = gst_sdp_message_add_attribute(sdp, "rtpmap", "96 H264/90000");
+	//res = gst_sdp_message_add_attribute(sdp, "control", "trackID=1");
+
+	
+	gchar * sdp_str = gst_sdp_message_as_text(sdp);
+	size = g_utf8_strlen(sdp_str, 500);
+	gst_sdp_media_free(media);
+
+	
+
+	res = gst_rtsp_message_set_body(&msg, sdp_str, size);
 
 	if (sink->debug)
 		gst_rtsp_message_dump(&msg);
@@ -230,10 +286,63 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	res = gst_rtsp_connection_send(conn, &msg, &timeout);
 
 	//res = gst_rtsp_connection_write(conn, data, size, &timeout);
+////////////////////// ANNOUNCE END //////////////////////////////////////////////////////////
+
+	////////////////////// SETUP START //////////////////////////////////////////////////////////
+
+
+	gint video_start_port = 5002;
+	gint video_end_port = video_start_port + 1;
+	gchar *transfer_foramt;
+
+	method = GST_RTSP_SETUP;
+	res = gst_rtsp_message_init_request(&msg, method, url_server_str_full);
+	if (res < 0)
+		return res;
+
+	transfer_foramt = g_strdup_printf("RTP/AVP/UDP;unicast;client_port=%d-%d;mode=receive", video_start_port, video_end_port);
+	
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_TRANSPORT, transfer_foramt);
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_SESSION, "1472462465"); // TODO: Get the session id from the responce.
+
+	if (sink->debug)
+		gst_rtsp_message_dump(&msg);
+
+
+	res = gst_rtsp_connection_send(conn, &msg, &timeout);
+
+
+////////////////////// SETUP END //////////////////////////////////////////////////////////
+
+	////////////////////// RECORD START //////////////////////////////////////////////////////////
+
+
+	
+	method = GST_RTSP_RECORD;
+	res = gst_rtsp_message_init_request(&msg, method, url_server_str_full);
+	if (res < 0)
+		return res;
+
+	transfer_foramt = g_strdup_printf("RTP/AVP/UDP;unicast;client_port=%d-%d;mode=receive", video_start_port, video_end_port);
+
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_RANGE, "npt=0.000-"); // start live.
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_SESSION, "1472462465"); // TODO: Get the session id from the responce.
+
+	if (sink->debug)
+		gst_rtsp_message_dump(&msg);
+
+
+	res = gst_rtsp_connection_send(conn, &msg, &timeout);
+
+
+	////////////////////// RECORD END //////////////////////////////////////////////////////////
+
+
+	
 
 	// close connection 
 	res = gst_rtsp_connection_close(conn);
-
+	gst_sdp_message_free(sdp); 
 
 	return GST_FLOW_OK;
 
