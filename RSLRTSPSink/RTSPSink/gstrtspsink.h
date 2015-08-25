@@ -75,6 +75,10 @@ struct _GstRTSPsink
   GstPad *sinkpad;// , *srcpad;
 
   gboolean silent;
+
+
+  gchar * user_agent;
+  gboolean debug;
 };
 
 

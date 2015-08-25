@@ -60,6 +60,8 @@
 #  include <config.h>
 #endif
 
+
+
 #include <gst/gst.h>
 #include <gst/rtsp/rtsp.h>
 
@@ -162,24 +164,29 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 
 static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
 {
-	GstRTSPsinkClass *sink = (GstRTSPsinkClass* )bsink;
+	GstRTSPsink *sink = (GstRTSPsink*)bsink;
 	GstRTSPResult res; 
 	GstRTSPConnection *conn ;
 	const GstRTSPUrl * url ;
 	GTimeVal timeout;
 	guint8 data[4] = {1,2,3,4};
 	guint size = 4;
+	GstRTSPMessage  msg = {0};
 
 
-	const gchar *urlstr = "rtsp://192.168.2.108";
+	const gchar *url_server_str = "rtsp://192.168.2.108";
+	const gchar *url_client_str = "rtsp://192.168.2.104";
 	int port = 1935;
 	timeout.tv_sec = 1; // set timeout to one second.
 	timeout.tv_usec = 0;
+	GstRTSPMethod method = GST_RTSP_OPTIONS;
+	sink->user_agent = "iReporty\n\0" ;
+	sink->debug = TRUE;
 
 
-
+	
 	// set parameters
-	GstRTSPResult res0 = gst_rtsp_url_parse(urlstr, &url);
+	GstRTSPResult res0 = gst_rtsp_url_parse(url_server_str, &url);
 	res0 = gst_rtsp_url_set_port(url, port);
 
 	// create connection 
@@ -187,14 +194,53 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	
 	res =  gst_rtsp_connection_connect(conn, &timeout);
 
+	if (res != GST_RTSP_OK)
+		goto beach;
 
-	res = gst_rtsp_connection_write(conn, data, size, &timeout);
+	res = gst_rtsp_message_init_request(&msg, method, url_server_str);
+	if (res < 0)
+		return res;
+
+	/* set user-agent */
+	if (sink->user_agent)
+		gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_USER_AGENT, sink->user_agent);
+
+	if (sink->debug )
+		gst_rtsp_message_dump(&msg);
+
+
+	res = gst_rtsp_connection_send(conn, &msg, &timeout);
+
+
+
+
+	method = GST_RTSP_ANNOUNCE;
+	res = gst_rtsp_message_init_request(&msg, method, url_client_str);
+	if (res < 0)
+		return res;
+
+	/* set user-agent */
+	if (sink->user_agent)
+		gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_USER_AGENT, sink->user_agent);
+
+
+	if (sink->debug)
+		gst_rtsp_message_dump(&msg);
+
+	res = gst_rtsp_connection_send(conn, &msg, &timeout);
+
+	//res = gst_rtsp_connection_write(conn, data, size, &timeout);
 
 	// close connection 
 	res = gst_rtsp_connection_close(conn);
 
 
 	return GST_FLOW_OK;
+
+beach:
+	// free message and exit.
+	return GST_FLOW_ERROR;
+
 }
 
 
@@ -254,7 +300,6 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
   //filter->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
   //GST_PAD_SET_PROXY_CAPS (filter->srcpad);
   //gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
-  
   filter->silent = FALSE;
 }
 
