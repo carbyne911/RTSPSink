@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
 	gst_object_unref(bus);
 
 	//pipeline = gst_parse_launch(" fakesrc ! rtsp_sink  ! fakesink ", &error);
-	pipeline = gst_parse_launch(" videotestsrc ! x264enc ! rtph264pay ! rtsp_sink ", &error);
+	pipeline = gst_parse_launch(" videotestsrc ! x264enc ! rtph264pay ! rtsp_sink host=192.168.2.108 port=1935 stream_name=live/1 ", &error);
 
 
 	if (error) {

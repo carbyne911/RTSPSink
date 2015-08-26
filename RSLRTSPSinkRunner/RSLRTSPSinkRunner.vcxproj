@@ -152,6 +152,11 @@
   <ItemGroup>
     <ClCompile Include="RSLRTSPSinkRunner.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RSLRTSPSink\RSLRTSPSink.vcxproj">
+      <Project>{a24b0f1f-0309-4572-98e1-34396f572619}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

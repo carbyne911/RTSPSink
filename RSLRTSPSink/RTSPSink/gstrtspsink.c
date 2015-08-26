@@ -70,6 +70,13 @@
 GST_DEBUG_CATEGORY_STATIC (gst_rtspsink_debug);
 #define GST_CAT_DEFAULT gst_rtspsink_debug
 
+
+
+#define RTSP_DEFAULT_HOST        "localhost"
+#define RTSP_DEFAULT_PORT		1935 
+#define RTSP_DEFAULT_STREAM_NAME "live"
+
+
 /* Filter signals and args */
 enum
 {
@@ -80,7 +87,10 @@ enum
 enum
 {
   PROP_0,
-  PROP_SILENT
+  PROP_SILENT,
+  PROP_HOST,
+  PROP_PORT,
+  PROP_STREAM_NAME
 };
 
 /* the capabilities of the inputs and outputs.
@@ -144,6 +154,24 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 	                               g_param_spec_boolean ("silent", "Silent", "Produce verbose output ?",
 								   FALSE, G_PARAM_READWRITE));
 
+  g_object_class_install_property (gobject_class, PROP_HOST,
+								  g_param_spec_string("host", "host",
+	  							  "The host/IP/Multicast group to send the packets to",
+	  							   RTSP_DEFAULT_HOST, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+    
+  g_object_class_install_property(G_OBJECT_CLASS(klass), PROP_PORT,
+								  g_param_spec_int("port", "port", "The port to send the packets to",
+								  0, 65535, RTSP_DEFAULT_PORT,
+								  G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property(gobject_class, PROP_STREAM_NAME,
+								  g_param_spec_string("stream-name", "stream-name",
+								  "The stream name ",
+								  RTSP_DEFAULT_STREAM_NAME, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+
+
   gst_element_class_set_details_simple(gstelement_class,
     "RTSPsink",
     "FIXME:Generic",
@@ -161,12 +189,134 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 
 }
 
+const int ERROR						= 300;
+const int ERR_CONNECTION			= 301;
+const int ERR_CANNOT_PUSH_STREAM	= 302;
+
+int isDigit(char c){
+	if (c >= '0' && c <= '9')
+		return TRUE;
+	else
+		return FALSE;
+}
+
+int isDigitsOnly(char * str)  
+{
+	int indx = 0 ; 
+	gboolean bAllDigits = TRUE ;
+	while (str[indx] != '\0') {
+
+		if (!isDigit(str[indx]))
+			bAllDigits = FALSE;
+
+		indx++;
+	}
+
+	return bAllDigits;
+
+}
+
+char * extractSessionNumberFromMessage(GstRTSPMessage * msg){
+
+
+	GstRTSPResult res = GST_RTSP_OK;
+	GstRTSPHeaderField field = GST_RTSP_HDR_SESSION;
+	gchar *value;
+	gint indx = 0;
+	gboolean bAnnounceFlag = FALSE, bRecordFlag = FALSE;
+
+	while (res == GST_RTSP_OK) {
+		res = gst_rtsp_message_get_header(msg, field, &value, indx);
+
+		// if its only numbers 
+		if (isDigitsOnly(value) )
+			return (g_strdup(value));
+		
+		indx++;
+	}
+
+	return NULL;
+
+
+}
+
+static int isServerSupportStreamPush(GstRTSPMessage * msg){
+	
+	GstRTSPResult res = GST_RTSP_OK;
+	GstRTSPHeaderField field = GST_RTSP_HDR_PUBLIC;
+	gchar *value;
+	gint indx = 0;
+	gboolean bAnnounceFlag = FALSE, bRecordFlag = FALSE;
+
+	while (res == GST_RTSP_OK) {
+		res = gst_rtsp_message_get_header(msg, field, &value, indx);
+		if (0 == g_strcmp0(value, "RECORD"))
+			bRecordFlag = TRUE;
+		if (0 == g_strcmp0(value, "ANNOUNCE"))
+			bAnnounceFlag = TRUE;
+
+		indx++;
+	}
+
+	if (bAnnounceFlag != TRUE || bRecordFlag != TRUE) {
+		return -ERR_CANNOT_PUSH_STREAM;
+	}
+
+	return GST_RTSP_OK;
+}
+
+
+static int isServerReturnOkResponse(GstRTSPMessage  *msg )
+{
+	GstRTSPResult res;
+	GstRTSPStatusCode code;
+	const gchar *reason;
+	GstRTSPVersion version;
+
+	res = gst_rtsp_message_parse_response(msg, &code, &reason, &version);
+
+	// check if server talks with us
+	if (res != GST_RTSP_OK || code != GST_RTSP_STS_OK ) {
+
+		return -ERR_CONNECTION;
+	}
+
+	return GST_RTSP_OK;
+}
+
+
+static int sendReceiveAndCheck(GstRTSPConnection *conn, GTimeVal *timeout, GstRTSPMessage  *msg , gboolean debug )
+{
+	GstRTSPResult res;
+
+
+	if (debug)
+		gst_rtsp_message_dump(msg);
+
+	// set our request
+	if ( (res = gst_rtsp_connection_send(conn, msg, timeout))  != GST_RTSP_OK) 
+		return -ERR_CONNECTION;
+
+
+	// get server responce
+	if ( (res = gst_rtsp_connection_receive(conn, msg, timeout)) != GST_RTSP_OK)
+		return -ERR_CONNECTION;
+
+	if (debug)
+		gst_rtsp_message_dump(msg);
+
+	if (isServerReturnOkResponse(msg) != GST_RTSP_OK)
+		return -ERR_CANNOT_PUSH_STREAM;
+
+	return GST_RTSP_OK;
+}
+
 
 static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
 {
 	GstRTSPsink *sink = (GstRTSPsink*)bsink;
 	GstRTSPResult res; 
-	GstRTSPConnection *conn ;
+	GstRTSPConnection *conn = sink->conn ;
 	GstRTSPUrl * url ;
 	GTimeVal timeout;
 	guint8 data[4] = {1,2,3,4};
@@ -175,27 +325,37 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	GstSDPMessage *sdp ;
 
 
-	const gchar *url_server_str = "rtsp://192.168.2.108";
-	const gchar *url_server_str_full = "rtsp://192.168.2.108:1935/live/1";
-	const gchar *url_server_ip_str = "192.168.2.104";
+	const gchar *url_server_str = "rtsp://192.168.2.108"; // TODO: get ip and port from parameters.
+	const gchar *url_server_str_full = g_strdup_printf("rtsp://%s:%d/%s", sink->host, sink->port, sink->stream_name);	//"rtsp://192.168.2.108:1935/live/1";
+	const gchar *url_server_ip_str = sink->host;// "192.168.2.108";
+	const gchar *url_client_ip_str = "192.168.2.104";
+	int port = sink->port;
 
-	const gchar *url_client_str = "rtsp://192.168.2.104";
-	int port = 1935;
+
 	timeout.tv_sec = 1; // set timeout to one second.
 	timeout.tv_usec = 0;
-	GstRTSPMethod method = GST_RTSP_OPTIONS;
-	sink->user_agent = "iReporty\n\0" ;
+	sink->user_agent = NULL;// "iReporty\n\0";
 	sink->debug = TRUE;
 	guint num_ports = 1;
 	guint rtp_port = 5006;
+	char *szPayloadType = "96"; // TODO: Get payload from sink pad
+	char *szSessionNumber; 
 
+
+	// if unrolling close RTSP/TCP connection
+	if (bsink->element.current_state == GST_STATE_PLAYING) {
+		
+		g_print("Unrolling ... ");
+		return (default_unroll(bsink));
+
+	}
 	
 	////////////////////// OPTINS START  //////////////////////////////////////////////////////////
 
 
 	// set parameters
-	GstRTSPResult res0 = gst_rtsp_url_parse((const  guint8*)url_server_str, &url);
-	res0 = gst_rtsp_url_set_port(url, port);
+	res = gst_rtsp_url_parse((const  guint8*)url_server_str, &url);
+	res = gst_rtsp_url_set_port(url, port);
 
 	// create connection 
 	res = gst_rtsp_connection_create(url, &conn);
@@ -205,6 +365,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	if (res != GST_RTSP_OK)
 		goto beach;
 
+	GstRTSPMethod method = GST_RTSP_OPTIONS;
 	res = gst_rtsp_message_init_request(&msg, method, url_server_str);
 	if (res < 0)
 		return res;
@@ -212,16 +373,24 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	/* set user-agent */
 	if (sink->user_agent)
 		gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_USER_AGENT, sink->user_agent);
+#if 0
 
+	// Send our packet receive server answer and check some basic checks.
+	if ( (res = sendReceiveAndCheck(conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
+		return res;
+	}
+	
 
+	// check if server supports RECORD.
+	if ( isServerSupportStreamPush(&msg) != GST_RTSP_OK) {
+		return -ERR_CANNOT_PUSH_STREAM;
+	}
 
-	if (sink->debug )
-		gst_rtsp_message_dump(&msg);
-
-
-	res = gst_rtsp_connection_send(conn, &msg, &timeout);
-
+#endif
 	////////////////////// OPTINS END  //////////////////////////////////////////////////////////
+
+
+	g_usleep(100);
 
 	////////////////////// ANNOUNCE START //////////////////////////////////////////////////////////
 
@@ -245,8 +414,16 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	//o=...
 	res = gst_sdp_message_set_origin(sdp, "-","0", "0", "IN","IP4" , "null");
 
+	//s=..
+	res = gst_sdp_message_set_session_name(sdp, "Unnamed");
+
+
+	//i=..
+	res = gst_sdp_message_set_information(sdp, "N/A");
+
+
 	//c=...
-	res = gst_sdp_message_set_connection(sdp, "IN", "IP4", url_server_ip_str, 0, 0);
+	res = gst_sdp_message_set_connection(sdp, "IN", "IP4", url_client_ip_str, 0, 0);
 	//a=...
 	res = gst_sdp_message_add_attribute(sdp, "recvonly", NULL);
 
@@ -261,32 +438,43 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	
 	res = gst_sdp_media_set_port_info(media, rtp_port, num_ports);
 	res = gst_sdp_media_set_proto( media,"RTP/AVP");
-	res = gst_sdp_media_add_format(media, "96");
+	res = gst_sdp_media_add_format(media, szPayloadType);
 	// insert media into sdp
 	res = gst_sdp_message_add_media(sdp,media);
+	
 
 	//a=...
-	//res = gst_sdp_message_add_attribute(sdp, "fmtp", "96 packetization-mode=1;profile-level-id=420014;sprop-parameter-sets=J0IAFKaBQfE=,KM48gA==;");
-	res = gst_sdp_message_add_attribute(sdp, "fmtp", "96");
-	res = gst_sdp_message_add_attribute(sdp, "rtpmap", "96 H264/90000");
-	//res = gst_sdp_message_add_attribute(sdp, "control", "trackID=1");
+	res = gst_sdp_message_add_attribute(sdp, "fmtp", "96 packetization-mode=1;profile-level-id=420014;sprop-parameter-sets=J0IAFKaBQfE=,KM48gA==;");
+	//res = gst_sdp_message_add_attribute(sdp, "fmtp", szPayloadType);
+	char *rtpmap = g_strdup_printf("%s H264/90000", szPayloadType);
+	res = gst_sdp_message_add_attribute(sdp, "rtpmap", rtpmap);
+	res = gst_sdp_message_add_attribute(sdp, "control", "streamid=0");
 
 	
 	gchar * sdp_str = gst_sdp_message_as_text(sdp);
 	size = g_utf8_strlen(sdp_str, 500);
+	gst_sdp_message_free(sdp);
 	gst_sdp_media_free(media);
 
-	
+	sdp_str = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=\"Sintel\\ Trailer\"\r\nc=IN IP4 192.168.2.108\r\nt=0 0\r\na=tool:libavformat 56.15.103\r\nm=video 0 RTP/AVP 96\r\na=rtpmap:96 VP8/90000\r\na=control:streamid=0\r\n";
 
-	res = gst_rtsp_message_set_body(&msg, sdp_str, size);
 
-	if (sink->debug)
-		gst_rtsp_message_dump(&msg);
 
-	res = gst_rtsp_connection_send(conn, &msg, &timeout);
+		res = gst_rtsp_message_set_body(&msg, sdp_str, 180);
+	//res = gst_rtsp_message_set_body(&msg, sdp_str, size);
 
-	//res = gst_rtsp_connection_write(conn, data, size, &timeout);
+	// Send our packet receive server answer and check some basic checks.
+	if ((res = sendReceiveAndCheck(conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
+		return res;
+	}
+
+	// get session number 
+	szSessionNumber = extractSessionNumberFromMessage(&msg);
+
+
+
 ////////////////////// ANNOUNCE END //////////////////////////////////////////////////////////
+	g_usleep(100);
 
 	////////////////////// SETUP START //////////////////////////////////////////////////////////
 
@@ -294,25 +482,32 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	gint video_start_port = 5002;
 	gint video_end_port = video_start_port + 1;
 	gchar *transfer_foramt;
+	gchar *tmp; 
 
 	method = GST_RTSP_SETUP;
-	res = gst_rtsp_message_init_request(&msg, method, url_server_str_full);
+	tmp = g_strdup_printf("%s/streamid=0", url_server_str_full);
+	res = gst_rtsp_message_init_request(&msg, method, tmp);
 	if (res < 0)
 		return res;
 
-	transfer_foramt = g_strdup_printf("RTP/AVP/UDP;unicast;client_port=%d-%d;mode=receive", video_start_port, video_end_port);
+	transfer_foramt = g_strdup_printf("RTP/AVP/UDP;unicast;client_port=%d-%d;mode=record", video_start_port, video_end_port);
 	
 	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_TRANSPORT, transfer_foramt);
-	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_SESSION, "1472462465"); // TODO: Get the session id from the responce.
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_SESSION, szSessionNumber); // TODO: Get the session id from the responce.
 
-	if (sink->debug)
-		gst_rtsp_message_dump(&msg);
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_CONTENT_LENGTH, "0"); // TODO: Get the session id from the responce.
 
+	
 
-	res = gst_rtsp_connection_send(conn, &msg, &timeout);
+	
 
+	// Send our packet receive server answer and check some basic checks.
+	if ((res = sendReceiveAndCheck(conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
+		return res;
+	}
 
 ////////////////////// SETUP END //////////////////////////////////////////////////////////
+	g_usleep(100);
 
 	////////////////////// RECORD START //////////////////////////////////////////////////////////
 
@@ -323,26 +518,18 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	if (res < 0)
 		return res;
 
-	transfer_foramt = g_strdup_printf("RTP/AVP/UDP;unicast;client_port=%d-%d;mode=receive", video_start_port, video_end_port);
-
+	
 	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_RANGE, "npt=0.000-"); // start live.
-	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_SESSION, "1472462465"); // TODO: Get the session id from the responce.
-
-	if (sink->debug)
-		gst_rtsp_message_dump(&msg);
+	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_SESSION, szSessionNumber);
 
 
-	res = gst_rtsp_connection_send(conn, &msg, &timeout);
-
+	// Send our packet receive server answer and check some basic checks.
+	if ((res = sendReceiveAndCheck(conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
+		return res;
+	}
 
 	////////////////////// RECORD END //////////////////////////////////////////////////////////
-
-
-	
-
-	// close connection 
-	res = gst_rtsp_connection_close(conn);
-	gst_sdp_message_free(sdp); 
+	g_usleep(10);
 
 	return GST_FLOW_OK;
 
@@ -350,6 +537,24 @@ beach:
 	// free message and exit.
 	return GST_FLOW_ERROR;
 
+}
+
+
+static gboolean default_unroll(GstBaseSink *media) {
+
+	
+	GstRTSPsink *sink = (GstRTSPsink*)media;
+	GstRTSPConnection *conn = sink->conn;
+	GstRTSPResult res;
+
+	if (conn == NULL) {
+		return GST_RTSP_OK;
+	}
+
+	// close connection 
+	res = gst_rtsp_connection_close(conn);
+
+	return res;
 }
 
 
@@ -416,11 +621,14 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
 static GstFlowReturn gst_rtsp_sink_render(GstBaseSink * bsink, GstBuffer * buffer)
 {
 	GstMapInfo map;
+	char data[512];
 	//buffer = gst_sample_get_buffer(sample);
 	gst_buffer_map(buffer, &map, GST_MAP_READ);
 
 
 	g_print("Data len %d\n", map.size);
+	
+
 	//g_memcpy(data, map.data, 4);
 	//g_print("Data: %D %D %D %D", data[0], data[1], data[2], data[3] );
 
@@ -441,6 +649,18 @@ gst_rtspsink_set_property (GObject * object, guint prop_id,
     case PROP_SILENT:
       filter->silent = g_value_get_boolean (value);
       break;
+	case PROP_HOST:
+		filter->host = g_strdup(g_value_get_string(value));
+		break; 
+
+	case PROP_STREAM_NAME:
+		filter->stream_name = g_strdup(g_value_get_string(value));
+		break;
+
+	case PROP_PORT:
+		filter->port = g_value_get_int(value);
+		break;
+
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -455,8 +675,19 @@ gst_rtspsink_get_property (GObject * object, guint prop_id,
 
   switch (prop_id) {
     case PROP_SILENT:
-      g_value_set_boolean (value, filter->silent);
-      break;
+		g_value_set_boolean (value, filter->silent);
+		break;
+	case PROP_HOST:
+		g_value_set_string(value, filter->host);
+		break;
+
+	case PROP_STREAM_NAME:
+		g_value_set_string(value, filter->stream_name);
+		break;
+
+	case PROP_PORT:
+		g_value_set_int(value, filter->port);
+		break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
