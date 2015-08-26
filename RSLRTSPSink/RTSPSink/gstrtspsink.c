@@ -192,6 +192,7 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 const int ERROR						= 300;
 const int ERR_CONNECTION			= 301;
 const int ERR_CANNOT_PUSH_STREAM	= 302;
+const int ERR_PARSING				= 303;
 
 int isDigit(char c){
 	if (c >= '0' && c <= '9')
@@ -213,6 +214,32 @@ int isDigitsOnly(char * str)
 	}
 
 	return bAllDigits;
+
+}
+
+
+
+int extractTransportFromMessage(GstRTSPMessage * msg, GstRTSPTransport *transport){
+	
+	GstRTSPResult res = GST_RTSP_OK;
+	GstRTSPHeaderField field = GST_RTSP_HDR_TRANSPORT;
+	gchar *value;
+	gint indx = 0;
+	
+	while (res == GST_RTSP_OK) {
+		res = gst_rtsp_message_get_header(msg, field, &value, indx);
+
+		if (res == GST_RTSP_OK) {
+			res = gst_rtsp_transport_parse(value, transport);
+			return GST_RTSP_OK;
+		}
+
+
+		indx++;
+	}
+
+	return GST_RTSP_EINVAL;
+
 
 }
 
@@ -324,8 +351,9 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	GstRTSPMessage  msg = {0};
 	GstSDPMessage *sdp ;
 
+	//return GST_RTSP_OK;
 
-	const gchar *url_server_str = "rtsp://192.168.2.108"; // TODO: get ip and port from parameters.
+	const gchar *url_server_str = g_strdup_printf("rtsp://%s", sink->host);  //"rtsp://192.168.2.108"; // TODO: get ip and port from parameters.
 	const gchar *url_server_str_full = g_strdup_printf("rtsp://%s:%d/%s", sink->host, sink->port, sink->stream_name);	//"rtsp://192.168.2.108:1935/live/1";
 	const gchar *url_server_ip_str = sink->host;// "192.168.2.108";
 	const gchar *url_client_ip_str = "192.168.2.104";
@@ -414,11 +442,13 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	res = gst_sdp_message_set_origin(sdp, "-","0", "0", "IN","IP4" , "0.0.0.0");
 
 	//s=..
-	res = gst_sdp_message_set_session_name(sdp, "Unnamed");
+	if (sink->session_name)
+		res = gst_sdp_message_set_session_name(sdp, "Unnamed");
 
 
 	//i=..
-	res = gst_sdp_message_set_information(sdp, "N/A");
+	if (sink->information)
+		res = gst_sdp_message_set_information(sdp, "N/A");
 
 
 	//c=...
@@ -499,6 +529,18 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 		return res;
 	}
 
+	GstRTSPTransport *transport;
+	res = gst_rtsp_transport_new(&transport);
+	res = extractTransportFromMessage(&msg, transport);
+	
+
+	g_print("Got server port %d", transport->server_port);
+	sink->server_rtp_port = transport->server_port.min;
+
+
+	if (res != GST_RTSP_OK)
+		return -ERR_PARSING; 
+
 ////////////////////// SETUP END //////////////////////////////////////////////////////////
 
 	////////////////////// RECORD START //////////////////////////////////////////////////////////
@@ -521,6 +563,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	}
 
 	////////////////////// RECORD END //////////////////////////////////////////////////////////
+
 
 	return GST_FLOW_OK;
 
@@ -605,6 +648,12 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
   //filter->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
   //GST_PAD_SET_PROXY_CAPS (filter->srcpad);
   //gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
+
+  filter->session_name = NULL;
+  filter->information = NULL;
+
+
+
   filter->silent = FALSE;
 }
 
@@ -613,11 +662,110 @@ static GstFlowReturn gst_rtsp_sink_render(GstBaseSink * bsink, GstBuffer * buffe
 {
 	GstMapInfo map;
 	char data[512];
+
+	GstRTSPsink *sink  = (GstRTSPsink*)bsink;
+
+	gchar *host = sink->host; // "www.ynet.co.il";// "192.168.2.108"; 
+	gint port = sink->server_rtp_port;
+
+	GError *error;
+	static GSocket * socket = NULL ;
+	static GInetAddress *bind_iaddr;
+
+	static GSocketAddress *sa;
+
+
+#if 0 
+	if (socket == NULL) {
+		socket = g_socket_new(GLIB_SYSDEF_AF_INET, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, &error);
+
+		GResolver *resolver;
+		//GSocketAddress *bind_addr;
+		bind_iaddr = g_inet_address_new_from_string(host);
+
+		// Try to get hostby name 
+		if (!bind_iaddr) {
+
+			resolver = g_resolver_get_default();
+			GList *results;
+			results = g_resolver_lookup_by_name(resolver, host, FALSE, &error);
+			if (results){
+				bind_iaddr = G_INET_ADDRESS(g_object_ref(results->data));
+			}
+
+			g_resolver_free_addresses(results);
+			g_object_unref(resolver);
+		}
+
+		gchar *ip = g_inet_address_to_string(bind_iaddr);
+
+		g_print( "IP address for host %s is %s", host, ip);
+		g_free(ip);
+
+		//addr = g_inet_socket_address_new(bind_iaddr, port);
+		
+
+		GInetSocketAddress *saddr = G_INET_SOCKET_ADDRESS(bind_iaddr); //???
+
+		int i = 0 ;
+
+		gssize  sent_size;
+		int size = 5;
+		GCancellable            *cancellable;
+		sent_size = g_socket_send_to(socket, saddr, "abcde", size, NULL, &error);
+
+		g_print(error->message);
+		g_object_unref(bind_iaddr);
+		g_print("TTT");
+
+#if 0
+		/* build the server's Internet address */
+		bzero((char *)&serveraddr, sizeof(serveraddr));
+		serveraddr.sin_family = AF_INET;
+		bcopy((char *)server->h_addr,
+			(char *)&serveraddr.sin_addr.s_addr, server->h_length);
+		serveraddr.sin_port = htons(portno);
+
+		/* get a message from the user */
+		bzero(buf, BUFSIZE);
+		printf("Please enter msg: ");
+		fgets(buf, BUFSIZE, stdin);
+
+		/* send the message to the server */
+		serverlen = sizeof(serveraddr);
+		n = sendto(sockfd, buf, strlen(buf), 0, &serveraddr, serverlen);
+#endif 
+	}
+
+	
+#endif
+
+	if (!socket)  {
+		socket = g_socket_new(G_SOCKET_FAMILY_IPV4, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, NULL);
+
+		gchar *s;
+		GInetAddress *ia;
+		ia = g_inet_address_new_from_string(sink->host);// "198.168.2.108");
+		//ia = g_inet_address_new_loopback(G_SOCKET_FAMILY_IPV4);
+		s = g_inet_address_to_string(ia);
+		sa = g_inet_socket_address_new(ia, port);
+	}
+	
+
+
 	//buffer = gst_sample_get_buffer(sample);
 	gst_buffer_map(buffer, &map, GST_MAP_READ);
 
 
+	if (g_socket_send_to(socket, sa, map.data, map.size, NULL, NULL) == -1 )
+		g_print("Not godd sending failed !");
+
+
+		
+
 	g_print("Data len %d\n", map.size);
+	
+
 	
 
 	//g_memcpy(data, map.data, 4);

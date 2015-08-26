@@ -80,8 +80,13 @@ struct _GstRTSPsink
 
   const gchar *host;  // The target host.  e.g Wowza ip.
   const gchar *stream_name;  // RTSP stream name e.g. Wowza application name
-  int    port;  // Host's RTSP port e.g. Wowza 1935
+  int port; // 
+  int    server_rtp_port;  // Host's RTSP port e.g. Wowza 1935
   gchar * user_agent;
+
+  gchar *session_name;
+  gchar *information;
+
   gboolean debug;
 };
 
