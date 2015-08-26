@@ -390,7 +390,6 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	////////////////////// OPTINS END  //////////////////////////////////////////////////////////
 
 
-	g_usleep(100);
 
 	////////////////////// ANNOUNCE START //////////////////////////////////////////////////////////
 
@@ -412,7 +411,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	//v=..
 	res = gst_sdp_message_set_version(sdp, "0");
 	//o=...
-	res = gst_sdp_message_set_origin(sdp, "-","0", "0", "IN","IP4" , "null");
+	res = gst_sdp_message_set_origin(sdp, "-","0", "0", "IN","IP4" , "0.0.0.0");
 
 	//s=..
 	res = gst_sdp_message_set_session_name(sdp, "Unnamed");
@@ -439,29 +438,24 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	res = gst_sdp_media_set_port_info(media, rtp_port, num_ports);
 	res = gst_sdp_media_set_proto( media,"RTP/AVP");
 	res = gst_sdp_media_add_format(media, szPayloadType);
-	// insert media into sdp
-	res = gst_sdp_message_add_media(sdp,media);
-	
 
 	//a=...
-	res = gst_sdp_message_add_attribute(sdp, "fmtp", "96 packetization-mode=1;profile-level-id=420014;sprop-parameter-sets=J0IAFKaBQfE=,KM48gA==;");
-	//res = gst_sdp_message_add_attribute(sdp, "fmtp", szPayloadType);
 	char *rtpmap = g_strdup_printf("%s H264/90000", szPayloadType);
-	res = gst_sdp_message_add_attribute(sdp, "rtpmap", rtpmap);
-	res = gst_sdp_message_add_attribute(sdp, "control", "streamid=0");
+	res = gst_sdp_media_add_attribute(media, "rtpmap", rtpmap);
+	res = gst_sdp_media_add_attribute(media, "fmtp", szPayloadType);
+	res = gst_sdp_media_add_attribute(media, "control", "streamid=0");
 
+
+
+	// insert media into sdp
+	res = gst_sdp_message_add_media(sdp,media);
 	
 	gchar * sdp_str = gst_sdp_message_as_text(sdp);
 	size = g_utf8_strlen(sdp_str, 500);
 	gst_sdp_message_free(sdp);
 	gst_sdp_media_free(media);
 
-	sdp_str = "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=\"Sintel\\ Trailer\"\r\nc=IN IP4 192.168.2.108\r\nt=0 0\r\na=tool:libavformat 56.15.103\r\nm=video 0 RTP/AVP 96\r\na=rtpmap:96 VP8/90000\r\na=control:streamid=0\r\n";
-
-
-
-		res = gst_rtsp_message_set_body(&msg, sdp_str, 180);
-	//res = gst_rtsp_message_set_body(&msg, sdp_str, size);
+	res = gst_rtsp_message_set_body(&msg, sdp_str, size);
 
 	// Send our packet receive server answer and check some basic checks.
 	if ((res = sendReceiveAndCheck(conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
@@ -474,7 +468,6 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 
 
 ////////////////////// ANNOUNCE END //////////////////////////////////////////////////////////
-	g_usleep(100);
 
 	////////////////////// SETUP START //////////////////////////////////////////////////////////
 
@@ -507,7 +500,6 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	}
 
 ////////////////////// SETUP END //////////////////////////////////////////////////////////
-	g_usleep(100);
 
 	////////////////////// RECORD START //////////////////////////////////////////////////////////
 
@@ -529,7 +521,6 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	}
 
 	////////////////////// RECORD END //////////////////////////////////////////////////////////
-	g_usleep(10);
 
 	return GST_FLOW_OK;
 
