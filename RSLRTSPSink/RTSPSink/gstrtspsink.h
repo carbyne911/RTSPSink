@@ -92,6 +92,10 @@ struct _GstRTSPsink
   GSocketAddress *sa;
 
   gboolean debug;
+
+  // get this data from upstream pads capabilites.
+  int payload, clock_rate;
+  gchar * encoding_name;
 };
 
 

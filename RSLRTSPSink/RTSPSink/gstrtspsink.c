@@ -145,91 +145,29 @@ gst_x264_enc_get_supported_input_caps(void)
 	return caps;
 }
 
-static GstCaps *
-gst_rtp_h264_pay_getcaps(GstBaseSink * payload, GstCaps * pad)
+gboolean gst_rtp_h264_pay_getcaps(GstBaseSink * base, GstCaps * caps)
 {
-	GstCaps *template_caps;
-	GstCaps *allowed_caps;
-	GstCaps *caps, *icaps;
-	gboolean append_unrestricted;
-	guint i;
-	GstRTSPsink *sink = (GstRTSPsink*)payload;
-
-
-
-	GstStructure *structure;
-	int rate, channels;
-	gboolean ret;
-	GstCaps *outcaps;
-	structure = gst_caps_get_structure(pad, 0);
-	ret = gst_structure_get_int(structure, "payload", &rate);
-
-	//GstCaps *caps;
-	//filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink0");
-
-	caps = gst_caps_new_simple("application/x-rtp",
-		"payload", GST_TYPE_INT_RANGE, 96, 127, NULL);
-
-
-	if (!gst_pad_set_caps(pad, caps)) {
-		g_printf("Caps negotination failed");
-	}
-
-
-		/*
-		application/x-rtp
-		media : video
-		payload : [96, 127]
-		clock - rate : 90000
-		encoding - name : H264
-		*/
-
 	
+	GstRTSPsink *sink = (GstRTSPsink*)base;
+	GstStructure *structure;
+	gboolean ret;
+	
+	
+	
+	structure = gst_caps_get_structure(caps, 0);
+	ret = gst_structure_get_int(structure, "payload", &sink->payload);
 
-//
-//	
-//	gboolean	b = gst_pad_is_linked(sink->sinkpad);
-//
-//
-//	b = gst_pad_has_current_caps(pad);
-//	int j = gst_caps_get_size(caps);
-//
-//	GstStructure *structure = gst_caps_get_structure(caps, 0);
-//
-//	gchar *str = gst_structure_get_name(structure);
-//
-//
-////	gst_structure_foreach(structure, print_field, (gpointer)NULL);
-//
-//
-//
-//
-//	GstCaps *supported_incaps;
-//
-//
-//	supported_incaps = gst_x264_enc_get_supported_input_caps();
-//
-//	str = gst_caps_get_structure(supported_incaps, 0);
-//	gst_structure_get_int(str, "width", &width)
+	structure = gst_caps_get_structure(caps, 0);
+	ret |= gst_structure_get_int(structure, "clock-rate", &sink->clock_rate);
 
-//	//allowed_caps = gst_pad_get_pad_template_caps(sink->sinkpad);
-//
-//	if (allowed_caps == NULL)
-//		return NULL;
-//
-//	gchar * strrr = gst_caps_to_string(allowed_caps);;
-//
-//
-//	int j = gst_caps_get_size(allowed_caps);
-//	template_caps =
-//		gst_static_pad_template_get_caps(&sink_factory);
-//
-//	if (gst_caps_is_any(allowed_caps)) {
-//		caps = gst_caps_ref(template_caps);
-//		goto done;
-//	}
-done:
-		return caps;
+	structure = gst_caps_get_structure(caps, 0);
+	sink->encoding_name = gst_structure_get_string(structure, "encoding-name");
+	
+	if (ret != 1 || sink->encoding_name == NULL) {
+		return FALSE;
+	}
+	
+	return TRUE;
 }
 
 /* initialize the rtsp_sink's class */
@@ -504,8 +442,8 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	GstRTSPConnection *conn = sink->conn ;
 	GstRTSPUrl * url ;
 	GTimeVal timeout;
-	guint8 data[4] = {1,2,3,4};
-	guint size = 4;
+	//guint8 data[4] = {1,2,3,4};
+	//guint size = 4;
 	GstRTSPMessage  msg = {0};
 	GstSDPMessage *sdp ;
 
@@ -524,13 +462,11 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	sink->debug = TRUE;
 	guint num_ports = 1;
 	guint rtp_port = 5006;
-	char *szPayloadType = "96"; // TODO: Get payload from sink pad
+	char *szPayloadType = g_strdup_printf("%d", sink->payload);
+	// "96"; // TODO: Get payload from sink pad
 	char *szSessionNumber; 
 
-
 	
-
-
 	// if unrolling close RTSP/TCP connection
 	if (bsink->element.current_state == GST_STATE_PLAYING) {
 		
@@ -629,7 +565,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	res = gst_sdp_media_add_format(media, szPayloadType);
 
 	//a=...
-	char *rtpmap = g_strdup_printf("%s H264/90000", szPayloadType);
+	char *rtpmap = g_strdup_printf("%s %s/%d", szPayloadType, sink->encoding_name, sink->clock_rate);
 	res = gst_sdp_media_add_attribute(media, "rtpmap", rtpmap);
 	res = gst_sdp_media_add_attribute(media, "fmtp", szPayloadType);
 	res = gst_sdp_media_add_attribute(media, "control", "streamid=0");
@@ -640,7 +576,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	res = gst_sdp_message_add_media(sdp,media);
 	
 	gchar * sdp_str = gst_sdp_message_as_text(sdp);
-	size = g_utf8_strlen(sdp_str, 500);
+	int size = g_utf8_strlen(sdp_str, 500);
 	gst_sdp_message_free(sdp);
 	gst_sdp_media_free(media);
 
