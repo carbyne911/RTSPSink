@@ -43,6 +43,22 @@
  * Boston, MA 02111-1307, USA.
  */
 
+
+
+/*
+Simple usage: 
+
+1.Run Wowza server on machine. Make sure application name 'live' is present and no authentication present.
+
+2. Run pipeline:
+gstreamer-launch-1.0  videotestsrc ! x264enc ! rtph264pay ! rtsp_sink host=<Your-Wowza-IP> port=1935 stream_name=live/1 
+
+3. Run VLC, press CTRL-N  to setup network stream
+rtsp://<Your-Wowza-IP>:1935/live/1
+*/
+
+
+
 #ifndef __GST_RTSP_SINK_H__
 #define __GST_RTSP_SINK_H__
 

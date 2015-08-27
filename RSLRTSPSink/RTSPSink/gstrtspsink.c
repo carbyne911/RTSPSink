@@ -46,14 +46,22 @@
 /**
  * SECTION:element-rtsp_sink
  *
- * FIXME:Describe rtsp_sink here.
+ * Description: rtsp_sink is an element which can send rtsp stream using RECORD option on the server.
+ * 
+ * NOTE: This is not intended to run directly with VLC.
  *
- * <refsect2>
- * <title>Example launch line</title>
- * |[
- * gst-launch -v -m fakesrc ! rtsp_sink ! fakesink silent=TRUE
- * ]|
- * </refsect2>
+
+ Simple usage:
+
+ 1.Run Wowza server on machine. Make sure application name 'live' is present and no authentication present.
+
+ 2. Run pipeline:
+ gstreamer-launch-1.0  videotestsrc ! x264enc ! rtph264pay ! rtsp_sink host=<Your-Wowza-IP> port=1935 stream_name=live/1 
+
+ 3. Run VLC, press CTRL-N  to setup network stream
+ rtsp://<Your-Wowza-IP>:1935/live/1
+
+
  */
 
 #ifdef HAVE_CONFIG_H
@@ -850,7 +858,7 @@ rtsp_sink_init (GstPlugin * rtsp_sink)
  * compile this code. GST_PLUGIN_DEFINE needs PACKAGE to be defined.
  */
 #ifndef PACKAGE
-#define PACKAGE "myfirstrtsp_sink"
+#define PACKAGE "rtsp_sink"
 #endif
 
 
