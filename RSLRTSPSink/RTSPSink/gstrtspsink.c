@@ -872,7 +872,7 @@ rtsp_sink_init (GstPlugin * rtsp_sink)
 GST_PLUGIN_DEFINE (
     GST_VERSION_MAJOR,
     GST_VERSION_MINOR,
-    rtsp_sink,
+    "rtsp_sink",
     "Pushing rtsp sink",
     rtsp_sink_init,
     VERSION,
