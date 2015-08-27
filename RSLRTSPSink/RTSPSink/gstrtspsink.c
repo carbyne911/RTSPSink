@@ -176,13 +176,12 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
     "RTSPsink",
     "FIXME:Generic",
     "FIXME:Generic Template Element",
-    "eduards <<user@hostname.org>>");
+    "Alex Dizengof alex@ireporty.com,  Eduard Sinelnikov eduard@ireporty.com");
 
   //gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&src_factory));
   gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&sink_factory));
 
-  //klass->prepare = default_prepare; 
-
+  
   gstbase_sink_class->render = (gst_rtsp_sink_render);
 
   gstbase_sink_class->preroll = (gst_rtsp_sink_preroll);
@@ -336,6 +335,53 @@ static int sendReceiveAndCheck(GstRTSPConnection *conn, GTimeVal *timeout, GstRT
 		return -ERR_CANNOT_PUSH_STREAM;
 
 	return GST_RTSP_OK;
+}
+
+
+int setRTPConnectionToServer(GstRTSPsink *sink)
+{
+
+	GError *error;
+
+//	gchar *host = sink->host; // "www.ynet.co.il";// "192.168.2.108"; 
+//	gint port = sink->server_rtp_port;
+//
+
+	if (!sink->socket)  {
+		sink->socket = g_socket_new(G_SOCKET_FAMILY_IPV4, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, NULL);
+
+		gchar *s;
+		GInetAddress *ia;
+		ia = g_inet_address_new_from_string(sink->host);
+
+
+		// Try to get hostby name 
+		if (!ia) {
+			GResolver *resolver;
+			resolver = g_resolver_get_default();
+			GList *results;
+			results = g_resolver_lookup_by_name(resolver, sink->host, FALSE, &error);
+			if (results){
+				ia = G_INET_ADDRESS(g_object_ref(results->data));
+			}
+
+			gchar *ip = g_inet_address_to_string(ia);
+
+			g_print("IP address for host %s is %s", sink->host, ip);
+			g_free(ip);
+
+			g_resolver_free_addresses(results);
+			g_object_unref(resolver);
+		}
+
+
+		s = g_inet_address_to_string(ia);
+		sink->sa = g_inet_socket_address_new(ia, sink->server_rtp_port);
+	}
+
+
+
+
 }
 
 
@@ -538,6 +584,8 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	sink->server_rtp_port = transport->server_port.min;
 
 
+	
+
 	if (res != GST_RTSP_OK)
 		return -ERR_PARSING; 
 
@@ -563,6 +611,12 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	}
 
 	////////////////////// RECORD END //////////////////////////////////////////////////////////
+
+
+
+	//  if everything went OK lets setup UDP/RTP connection to server.
+	res = setRTPConnectionToServer(sink);
+
 
 
 	return GST_FLOW_OK;
@@ -592,46 +646,6 @@ static gboolean default_unroll(GstBaseSink *media) {
 }
 
 
-static gboolean default_prepare(GstBaseSink * media)
-{
-
-	return TRUE;
-//	GstRTSPMediaPrivate *priv;
-//	GstRTSPMediaClass *klass;
-//	GstBus *bus;
-//	GMainContext *context;
-//	GSource *source;
-//
-//	priv = media->priv;
-//
-//	klass = GST_RTSP_MEDIA_GET_CLASS(media);
-//
-//	if (!klass->create_rtpbin)
-//		goto no_create_rtpbin;
-//
-//	priv->rtpbin = klass->create_rtpbin(media);
-//	if (priv->rtpbin != NULL) {
-//		gboolean success = TRUE;
-//
-//		g_object_set(priv->rtpbin, "latency", priv->latency, NULL);
-//
-//		if (klass->setup_rtpbin)
-//			success = klass->setup_rtpbin(media, priv->rtpbin);
-//
-//		if (success == FALSE) {
-//			gst_object_unref(priv->rtpbin);
-//			priv->rtpbin = NULL;
-//		}
-//	}
-//	if (priv->rtpbin == NULL)
-//		goto no_rtpbin;
-//
-//	priv->thread = thread;
-//	context = (thread != NULL) ? (thread->context) : NULL;
-//
-//	bus = gst_pipeline_get_bus(GST_PIPELINE_CAST(priv->pipeline));
-}
-
 /* initialize the new element
  * instantiate pads and add them to element
  * set pad calback functions
@@ -645,14 +659,10 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
   GST_PAD_SET_PROXY_CAPS (filter->sinkpad);
   gst_element_add_pad (GST_ELEMENT (filter), filter->sinkpad);
 
-  //filter->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
-  //GST_PAD_SET_PROXY_CAPS (filter->srcpad);
-  //gst_element_add_pad (GST_ELEMENT (filter), filter->srcpad);
-
   filter->session_name = NULL;
   filter->information = NULL;
 
-
+  filter->socket = NULL;
 
   filter->silent = FALSE;
 }
@@ -665,115 +675,18 @@ static GstFlowReturn gst_rtsp_sink_render(GstBaseSink * bsink, GstBuffer * buffe
 
 	GstRTSPsink *sink  = (GstRTSPsink*)bsink;
 
-	gchar *host = sink->host; // "www.ynet.co.il";// "192.168.2.108"; 
-	gint port = sink->server_rtp_port;
-
-	GError *error;
-	static GSocket * socket = NULL ;
-	static GInetAddress *bind_iaddr;
-
-	static GSocketAddress *sa;
-
-
-#if 0 
-	if (socket == NULL) {
-		socket = g_socket_new(GLIB_SYSDEF_AF_INET, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, &error);
-
-		GResolver *resolver;
-		//GSocketAddress *bind_addr;
-		bind_iaddr = g_inet_address_new_from_string(host);
-
-		// Try to get hostby name 
-		if (!bind_iaddr) {
-
-			resolver = g_resolver_get_default();
-			GList *results;
-			results = g_resolver_lookup_by_name(resolver, host, FALSE, &error);
-			if (results){
-				bind_iaddr = G_INET_ADDRESS(g_object_ref(results->data));
-			}
-
-			g_resolver_free_addresses(results);
-			g_object_unref(resolver);
-		}
-
-		gchar *ip = g_inet_address_to_string(bind_iaddr);
-
-		g_print( "IP address for host %s is %s", host, ip);
-		g_free(ip);
-
-		//addr = g_inet_socket_address_new(bind_iaddr, port);
-		
-
-		GInetSocketAddress *saddr = G_INET_SOCKET_ADDRESS(bind_iaddr); //???
-
-		int i = 0 ;
-
-		gssize  sent_size;
-		int size = 5;
-		GCancellable            *cancellable;
-		sent_size = g_socket_send_to(socket, saddr, "abcde", size, NULL, &error);
-
-		g_print(error->message);
-		g_object_unref(bind_iaddr);
-		g_print("TTT");
-
-#if 0
-		/* build the server's Internet address */
-		bzero((char *)&serveraddr, sizeof(serveraddr));
-		serveraddr.sin_family = AF_INET;
-		bcopy((char *)server->h_addr,
-			(char *)&serveraddr.sin_addr.s_addr, server->h_length);
-		serveraddr.sin_port = htons(portno);
-
-		/* get a message from the user */
-		bzero(buf, BUFSIZE);
-		printf("Please enter msg: ");
-		fgets(buf, BUFSIZE, stdin);
-
-		/* send the message to the server */
-		serverlen = sizeof(serveraddr);
-		n = sendto(sockfd, buf, strlen(buf), 0, &serveraddr, serverlen);
-#endif 
-	}
-
-	
-#endif
-
-	if (!socket)  {
-		socket = g_socket_new(G_SOCKET_FAMILY_IPV4, G_SOCKET_TYPE_DATAGRAM, G_SOCKET_PROTOCOL_UDP, NULL);
-
-		gchar *s;
-		GInetAddress *ia;
-		ia = g_inet_address_new_from_string(sink->host);// "198.168.2.108");
-		//ia = g_inet_address_new_loopback(G_SOCKET_FAMILY_IPV4);
-		s = g_inet_address_to_string(ia);
-		sa = g_inet_socket_address_new(ia, port);
-	}
-	
-
-
-	//buffer = gst_sample_get_buffer(sample);
+	// Let us access the data
 	gst_buffer_map(buffer, &map, GST_MAP_READ);
 
-
-	if (g_socket_send_to(socket, sa, map.data, map.size, NULL, NULL) == -1 )
+	// send data over udp, period.
+	if (g_socket_send_to(sink->socket, sink->sa, map.data, map.size, NULL, NULL) == -1 )
 		g_print("Not godd sending failed !");
 
-
 		
-
-	g_print("Data len %d\n", map.size);
+	if (sink->debug)
+		g_print("Data len %d\n", map.size);
 	
-
-	
-
-	//g_memcpy(data, map.data, 4);
-	//g_print("Data: %D %D %D %D", data[0], data[1], data[2], data[3] );
-
-
 	gst_buffer_unmap(buffer, &map);
-	//gst_sample_unref(sample);
 
 	return GST_FLOW_OK;
 }
@@ -863,24 +776,6 @@ gst_rtspsink_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
   return ret;
 }
 
-/* chain function
- * this function does the actual processing
- */
-#if NOT_SINK
-static GstFlowReturn
-gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf)
-{
-  GstRTSPsink *filter;
-
-  filter = GST_RTSP_SINK (parent);
-
-  if (filter->silent == FALSE)
-    g_print ("I'm plugged, therefore I'm in. EDU!\n");
-
-  /* just push out the incoming buffer without touching it */
-  return gst_pad_push (filter->srcpad, buf);
-}
-#endif
 
 
 /* entry point to initialize the plug-in
@@ -894,11 +789,9 @@ rtsp_sink_init (GstPlugin * rtsp_sink)
    *
    * exchange the string 'Template rtsp_sink' with your description
    */
-  GST_DEBUG_CATEGORY_INIT (gst_rtspsink_debug, "rtsp_sink",
-      0, "Template rtsp_sink");
+  GST_DEBUG_CATEGORY_INIT (gst_rtspsink_debug, "rtsp_sink",  0, "Template rtsp_sink");
 
-  return gst_element_register (rtsp_sink, "rtsp_sink", GST_RANK_NONE,
-      GST_TYPE_RTSP_SINK);
+  return gst_element_register (rtsp_sink, "rtsp_sink", GST_RANK_NONE,  GST_TYPE_RTSP_SINK);
 }
 
 /* PACKAGE: this is usually set by autotools depending on some _INIT macro

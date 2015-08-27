@@ -87,6 +87,10 @@ struct _GstRTSPsink
   gchar *session_name;
   gchar *information;
 
+  // RTP/UDP connection to server
+  GSocket * socket ;
+  GSocketAddress *sa;
+
   gboolean debug;
 };
 

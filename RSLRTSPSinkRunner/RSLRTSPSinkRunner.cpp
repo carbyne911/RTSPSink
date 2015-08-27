@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
 	guint watch_id = gst_bus_add_watch(bus, bus_call, loop);
 	gst_object_unref(bus);
 
-	//pipeline = gst_parse_launch(" fakesrc ! rtsp_sink  ! fakesink ", &error);
+	//pipeline = gst_parse_launch(" fakesrc ! rtsp_sink  ! fakesink ", &error); 
 	pipeline = gst_parse_launch(" videotestsrc ! x264enc ! rtph264pay ! rtsp_sink host=192.168.2.104 port=1935 stream_name=live/1 ", &error);
 
 
