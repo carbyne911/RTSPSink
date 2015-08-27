@@ -100,21 +100,21 @@ enum
 static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("ANY")
+    GST_STATIC_CAPS ("application/x-rtp")
     );
 
-static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
-    GST_PAD_SRC,
-    GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("ANY")
-    );
+/*
+application/x-rtp
+media : video
+	payload : [96, 127]
+			  clock - rate : 90000
+			  encoding - name : H264
+*/
 	
 
 
 #define gst_rtspsink_parent_class parent_class
 G_DEFINE_TYPE(GstRTSPsink, gst_rtspsink, GST_TYPE_BASE_SINK);
-//G_DEFINE_TYPE (GstRTSPsink, gst_rtspsink, GST_TYPE_ELEMENT);
-//G_DEFINE_TYPE(GstMySink, gst_my_sink, GST_TYPE_BASE_SINK);
 
 
 static void gst_rtspsink_set_property (GObject * object, guint prop_id,
@@ -123,16 +123,114 @@ static void gst_rtspsink_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
 
 static gboolean gst_rtspsink_sink_event (GstPad * pad, GstObject * parent, GstEvent * event);
-//static GstFlowReturn gst_rtspsink_chain (GstPad * pad, GstObject * parent, GstBuffer * buf);
 
 static GstFlowReturn  gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer);
 
 static GstFlowReturn gst_rtsp_sink_render(GstBaseSink * bsink, GstBuffer * buf);
+static gboolean default_unroll(GstBaseSink *media);
 
 
-/* GObject vmethod implementations */
+
+static GstCaps *
+gst_x264_enc_get_supported_input_caps(void)
+{
+	GstCaps *caps;
+
+	caps = gst_caps_new_simple("application/x-rtp",
+		"payload", GST_TYPE_INT_RANGE, 96, 127, NULL);
+
+	//gst_x264_enc_add_x264_chroma_format(gst_caps_get_structure(caps, 0),	x264_chroma_format);
+
+	//GST_DEBUG("returning %" GST_PTR_FORMAT, caps);
+	return caps;
+}
+
+static GstCaps *
+gst_rtp_h264_pay_getcaps(GstBaseSink * payload, GstCaps * pad)
+{
+	GstCaps *template_caps;
+	GstCaps *allowed_caps;
+	GstCaps *caps, *icaps;
+	gboolean append_unrestricted;
+	guint i;
+	GstRTSPsink *sink = (GstRTSPsink*)payload;
 
 
+
+	GstStructure *structure;
+	int rate, channels;
+	gboolean ret;
+	GstCaps *outcaps;
+	structure = gst_caps_get_structure(pad, 0);
+	ret = gst_structure_get_int(structure, "payload", &rate);
+
+	//GstCaps *caps;
+	//filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink0");
+
+	caps = gst_caps_new_simple("application/x-rtp",
+		"payload", GST_TYPE_INT_RANGE, 96, 127, NULL);
+
+
+	if (!gst_pad_set_caps(pad, caps)) {
+		g_printf("Caps negotination failed");
+	}
+
+
+		/*
+		application/x-rtp
+		media : video
+		payload : [96, 127]
+		clock - rate : 90000
+		encoding - name : H264
+		*/
+
+	
+
+//
+//	
+//	gboolean	b = gst_pad_is_linked(sink->sinkpad);
+//
+//
+//	b = gst_pad_has_current_caps(pad);
+//	int j = gst_caps_get_size(caps);
+//
+//	GstStructure *structure = gst_caps_get_structure(caps, 0);
+//
+//	gchar *str = gst_structure_get_name(structure);
+//
+//
+////	gst_structure_foreach(structure, print_field, (gpointer)NULL);
+//
+//
+//
+//
+//	GstCaps *supported_incaps;
+//
+//
+//	supported_incaps = gst_x264_enc_get_supported_input_caps();
+//
+//	str = gst_caps_get_structure(supported_incaps, 0);
+//	gst_structure_get_int(str, "width", &width)
+
+//	//allowed_caps = gst_pad_get_pad_template_caps(sink->sinkpad);
+//
+//	if (allowed_caps == NULL)
+//		return NULL;
+//
+//	gchar * strrr = gst_caps_to_string(allowed_caps);;
+//
+//
+//	int j = gst_caps_get_size(allowed_caps);
+//	template_caps =
+//		gst_static_pad_template_get_caps(&sink_factory);
+//
+//	if (gst_caps_is_any(allowed_caps)) {
+//		caps = gst_caps_ref(template_caps);
+//		goto done;
+//	}
+done:
+		return caps;
+}
 
 /* initialize the rtsp_sink's class */
 static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
@@ -143,7 +241,7 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 
   gobject_class = (GObjectClass *) klass;
   gstelement_class = (GstElementClass *) klass;
-  gstbase_sink_class = GST_BASE_SINK_CLASS(klass);  //(GstBaseSinkClass *)klass; //GST_BASE_SINK_CLASS(klass);
+  gstbase_sink_class = GST_BASE_SINK_CLASS(klass);  
 
 
 
@@ -174,15 +272,18 @@ static void gst_rtspsink_class_init (GstRTSPsinkClass * klass)
 
   gst_element_class_set_details_simple(gstelement_class,
     "RTSPsink",
-    "FIXME:Generic",
-    "FIXME:Generic Template Element",
+    "RTSP/UDP sink",
+    "RTSP Sink element, it can push stream using RTSP's RECORD capability",
     "Alex Dizengof alex@ireporty.com,  Eduard Sinelnikov eduard@ireporty.com");
 
-  //gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&src_factory));
+
   gst_element_class_add_pad_template (gstelement_class,    gst_static_pad_template_get (&sink_factory));
 
   
   gstbase_sink_class->render = (gst_rtsp_sink_render);
+
+  //query
+  gstbase_sink_class->set_caps = gst_rtp_h264_pay_getcaps;
 
   gstbase_sink_class->preroll = (gst_rtsp_sink_preroll);
 
@@ -380,10 +481,21 @@ int setRTPConnectionToServer(GstRTSPsink *sink)
 	}
 
 
+	if (sink->socket != NULL && sink->sa != NULL)
+		return GST_RTSP_OK;
 
+	return GST_RTSP_ERROR;
 
 }
 
+
+static gboolean print_field(GQuark field, const GValue * value, gpointer pfx) {
+	gchar *str = gst_value_serialize(value);
+
+	g_print("---  %15s: %s\n",  g_quark_to_string(field), str);
+	g_free(str);
+	return TRUE;
+}
 
 static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
 {
@@ -402,7 +514,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	const gchar *url_server_str = g_strdup_printf("rtsp://%s", sink->host);  //"rtsp://192.168.2.108"; // TODO: get ip and port from parameters.
 	const gchar *url_server_str_full = g_strdup_printf("rtsp://%s:%d/%s", sink->host, sink->port, sink->stream_name);	//"rtsp://192.168.2.108:1935/live/1";
 	const gchar *url_server_ip_str = sink->host;// "192.168.2.108";
-	const gchar *url_client_ip_str = "192.168.2.104";
+	const gchar *url_client_ip_str = "0.0.0.0";//"192.168.2.104";
 	int port = sink->port;
 
 
@@ -414,6 +526,9 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	guint rtp_port = 5006;
 	char *szPayloadType = "96"; // TODO: Get payload from sink pad
 	char *szSessionNumber; 
+
+
+	
 
 
 	// if unrolling close RTSP/TCP connection
@@ -447,7 +562,6 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	/* set user-agent */
 	if (sink->user_agent)
 		gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_USER_AGENT, sink->user_agent);
-#if 0
 
 	// Send our packet receive server answer and check some basic checks.
 	if ( (res = sendReceiveAndCheck(conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
@@ -460,7 +574,6 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 		return -ERR_CANNOT_PUSH_STREAM;
 	}
 
-#endif
 	////////////////////// OPTINS END  //////////////////////////////////////////////////////////
 
 
@@ -653,6 +766,8 @@ static gboolean default_unroll(GstBaseSink *media) {
  */
 static void gst_rtspsink_init (GstRTSPsink * filter)
 {
+  
+	
   filter->sinkpad = gst_pad_new_from_static_template (&sink_factory, "sink0");
   gst_pad_set_event_function (filter->sinkpad,    GST_DEBUG_FUNCPTR(gst_rtspsink_sink_event));
   //gst_pad_set_chain_function (filter->sinkpad,    GST_DEBUG_FUNCPTR(gst_rtspsink_chain));
@@ -661,6 +776,8 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
 
   filter->session_name = NULL;
   filter->information = NULL;
+
+  
 
   filter->socket = NULL;
 
@@ -671,8 +788,6 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
 static GstFlowReturn gst_rtsp_sink_render(GstBaseSink * bsink, GstBuffer * buffer)
 {
 	GstMapInfo map;
-	char data[512];
-
 	GstRTSPsink *sink  = (GstRTSPsink*)bsink;
 
 	// Let us access the data
@@ -719,8 +834,7 @@ gst_rtspsink_set_property (GObject * object, guint prop_id,
   }
 }
 
-static void
-gst_rtspsink_get_property (GObject * object, guint prop_id,
+static void gst_rtspsink_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec)
 {
   GstRTSPsink *filter = GST_RTSP_SINK (object);
