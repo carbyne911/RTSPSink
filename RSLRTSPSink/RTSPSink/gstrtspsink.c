@@ -728,7 +728,7 @@ static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeo
 				g_print("Authentication failed, wrong user/password.\n"); 
 			}
 
-			gst_rtsp_connection_clear_auth_params(sink->conn);
+			//gst_rtsp_connection_clear_auth_params(sink->conn);
 
 		}
 
