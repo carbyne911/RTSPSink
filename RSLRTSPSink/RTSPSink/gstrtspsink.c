@@ -2,7 +2,8 @@
  * GStreamer
  * Copyright (C) 2005 Thomas Vander Stichele <thomas@apestaart.org>
  * Copyright (C) 2005 Ronald S. Bultje <rbultje@ronald.bitfreak.net>
- * Copyright (C) 2015 eduards <<user@hostname.org>>
+ * Copyright (C) 2015 Eduard Sinelnikov <eduard@ireporty.com>
+ * Copyright (C) 2015 Alex Dizengof <alex@ireporty.com>
  * 
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
