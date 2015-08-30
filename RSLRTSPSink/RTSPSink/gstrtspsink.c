@@ -685,29 +685,24 @@ beach:
 
 }
 
+
+void setup_preroll_default_data(GTimeVal *timeout)
+{
+	timeout->tv_sec = 1; // set timeout to one second.
+	timeout->tv_usec = 0;
+	
+}
+
 static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buffer)
 {
 	GstRTSPsink *sink = (GstRTSPsink*)bsink;
 	GstRTSPResult res; 
-	//GstRTSPConnection *conn = sink->conn ;
 	GTimeVal timeout;
 	char *szSessionNumber;
 
-	//GstRTSPMessage  msg = {0};
-
-	//return GST_RTSP_OK;
-
-	
-
-
-	timeout.tv_sec = 1; // set timeout to one second.
-	timeout.tv_usec = 0;
-	sink->user_agent = NULL;// "iReporty\n\0";
-	
-	//guint num_ports = 1;
-	guint rtp_port = 0;// 5006;
-
-	
+	// setup some default data.
+	setup_preroll_default_data(&timeout);
+		
 	// if unrolling close RTSP/TCP connection
 	if (bsink->element.current_state == GST_STATE_PLAYING) {
 		
@@ -716,6 +711,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 
 	}
 	
+	// run the RTSP sequence.
 	res = create_and_send_OPTION_message(sink, &timeout);
 	res = create_and_send_ANNOUNCE_message(sink, &timeout, &szSessionNumber); 
 	res = create_and_send_SETUP_message(sink, &timeout, szSessionNumber); 
@@ -724,9 +720,7 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 
 	//  if everything went OK lets setup UDP/RTP connection to server.
 	res = setRTPConnectionToServer(sink);
-
-
-
+	
 	return GST_FLOW_OK;
 
 	// free message and exit.
@@ -770,11 +764,8 @@ static void gst_rtspsink_init (GstRTSPsink * filter)
 
   filter->session_name = NULL;
   filter->information = NULL;
-
-  
-
+  filter->user_agent = NULL;// "iReporty\n\0";
   filter->socket = NULL;
-
   filter->silent = FALSE;
 }
 
@@ -805,6 +796,8 @@ gst_rtspsink_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec)
 {
   GstRTSPsink *filter = GST_RTSP_SINK (object);
+
+
 
   switch (prop_id) {
     case PROP_SILENT:
