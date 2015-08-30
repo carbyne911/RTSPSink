@@ -85,7 +85,6 @@ typedef struct _GstRTSPsinkClass GstRTSPsinkClass;
 
 struct _GstRTSPsink
 {
-  //GstElement element;
   GstBaseSink element; 
 
   GstPad *sinkpad;// , *srcpad;
@@ -116,6 +115,8 @@ struct _GstRTSPsink
   const gchar * authentication_name;
   const gchar * authentication_pass;
 
+  GstRTSPMessage  *responce; 
+
 };
 
 
@@ -124,7 +125,6 @@ static gboolean default_prepare(GstBaseSink * media);
 
 struct _GstRTSPsinkClass 
 {
-//  GstElementClass parent_class;
   GstBaseSinkClass parent_class;
 
   gboolean(*prepare)         (GstRTSPsink *media);

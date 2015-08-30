@@ -70,11 +70,21 @@
 #endif
 
 
+#include <string.h>
+#include <gio/gio.h>
+
 
 #include <gst/gst.h>
 #include <gst/rtsp/rtsp.h>
+#include <gst/sdp/gstmikey.h>
 
 #include "gstrtspsink.h"
+
+
+
+
+
+
 
 GST_DEBUG_CATEGORY_STATIC (gst_rtspsink_debug);
 #define GST_CAT_DEFAULT gst_rtspsink_debug
@@ -114,14 +124,6 @@ static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_STATIC_CAPS ("application/x-rtp")
     );
 
-/*
-application/x-rtp
-media : video
-	payload : [96, 127]
-			  clock - rate : 90000
-			  encoding - name : H264
-*/
-	
 
 
 #define gst_rtspsink_parent_class parent_class
@@ -150,9 +152,6 @@ gst_x264_enc_get_supported_input_caps(void)
 	caps = gst_caps_new_simple("application/x-rtp",
 		"payload", GST_TYPE_INT_RANGE, 96, 127, NULL);
 
-	//gst_x264_enc_add_x264_chroma_format(gst_caps_get_structure(caps, 0),	x264_chroma_format);
-
-	//GST_DEBUG("returning %" GST_PTR_FORMAT, caps);
 	return caps;
 }
 
@@ -174,11 +173,6 @@ gboolean gst_rtp_h264_pay_getcaps(GstBaseSink * base, GstCaps * caps)
 	structure = gst_caps_get_structure(caps, 0);
 	sink->encoding_name = gst_structure_get_string(structure, "encoding-name");
 
-	structure = gst_caps_get_structure(caps, 0);
-	sink->authentication_name = gst_structure_get_string(structure, "auth-name");
-
-	structure = gst_caps_get_structure(caps, 0);
-	sink->authentication_pass = gst_structure_get_string(structure, "auth-pass");
 	
 	if (ret != 1 || sink->encoding_name == NULL) {
 		return FALSE;
@@ -547,7 +541,206 @@ static gint create_and_send_SETUP_message(GstRTSPsink* sink, GTimeVal *timeout, 
 
 }
 
-static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeout, char **szSessionNumber) {
+static gint  create_and_send_ANNOUNCE_message2(GstRTSPsink* sink, GTimeVal *timeout, char **szSessionNumber);
+ 
+
+
+static const gchar *
+gst_rtspsrc_unskip_lws(const gchar * s, const gchar * start)
+{
+	while (s > start && g_ascii_isspace(*(s - 1)))
+		s--;
+	return s;
+}
+
+static const gchar *
+gst_rtspsrc_skip_commas(const gchar * s)
+{
+	/* The grammar allows for multiple commas */
+	while (g_ascii_isspace(*s) || *s == ',')
+		s++;
+	return s;
+}
+
+static const gchar *
+gst_rtspsrc_skip_lws(const gchar * s)
+{
+	while (g_ascii_isspace(*s))
+		s++;
+	return s;
+}
+
+static void
+gst_rtsp_decode_quoted_string(gchar * quoted_string)
+{
+	gchar *src, *dst;
+
+	src = quoted_string + 1;
+	dst = quoted_string;
+	while (*src && *src != '"') {
+		if (*src == '\\' && *(src + 1))
+			src++;
+		*dst++ = *src++;
+	}
+	*dst = '\0';
+}
+
+
+static const gchar *
+gst_rtspsrc_skip_item(const gchar * s)
+{
+	gboolean quoted = FALSE;
+	const gchar *start = s;
+
+	/* A list item ends at the last non-whitespace character
+	* before a comma which is not inside a quoted-string. Or at
+	* the end of the string.
+	*/
+	while (*s) {
+		if (*s == '"')
+			quoted = !quoted;
+		else if (quoted) {
+			if (*s == '\\' && *(s + 1))
+				s++;
+		}
+		else {
+			if (*s == ',')
+				break;
+		}
+		s++;
+	}
+
+	return gst_rtspsrc_unskip_lws(s, start);
+}
+
+
+/* Extract the authentication tokens that the server provided for each method
+* into an array of structures and give those to the connection object.
+*/
+static void gst_rtspsrc_parse_digest_challenge(GstRTSPConnection * conn, const gchar * header, gboolean * stale)
+{
+	GSList *list = NULL, *iter;
+	const gchar *end;
+	gchar *item, *eq, *name_end, *value;
+
+	//g_return_if_fail(stale != NULL);
+
+	
+	//*stale = FALSE;
+
+	/* Parse a header whose content is described by RFC2616 as
+	* "#something", where "something" does not itself contain commas,
+	* except as part of quoted-strings, into a list of allocated strings.
+	*/
+	header = gst_rtspsrc_skip_commas(header);
+	while (*header) {
+		end = gst_rtspsrc_skip_item(header);
+		list = g_slist_prepend(list, g_strndup(header, end - header));
+		header = gst_rtspsrc_skip_commas(end);
+	}
+	if (!list)
+		return;
+
+	list = g_slist_reverse(list);
+	for (iter = list; iter; iter = iter->next) {
+		item = iter->data;
+
+		/*gchar* g_utf8_strchr(const gchar *p,
+			gssize       len,
+			gunichar     c);*/
+		//eq = g_strstr(item, "=");
+		//eq = strchr(item, '=');
+		
+		eq = g_utf8_strchr(item, g_utf8_strlen(item, 512), '=');
+		if (eq) {
+			name_end = (gchar *)gst_rtspsrc_unskip_lws(eq, item);
+			if (name_end == item) {
+				/* That's no good... */
+				g_free(item);
+				continue;
+			}
+
+			*name_end = '\0';
+
+			value = (gchar *)gst_rtspsrc_skip_lws(eq + 1);
+			if (*value == '"')
+				gst_rtsp_decode_quoted_string(value);
+		}
+		else
+			value = NULL;
+
+		//if (value && g_strcmp0(item, "stale") == 0 && g_strcmp0(value, "TRUE") == 0)
+		//	*stale = TRUE;
+		gst_rtsp_connection_set_auth_param(conn, item, value);
+		//Digest realm  Streaming Server
+		//nonce		5949c3fda2f1fd4bd17b393284ce6118
+		g_free(item);
+	}
+
+	g_slist_free(list);
+}
+
+
+static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeout, char **szSessionNumber)
+{
+
+	GstRTSPResult res;
+	gchar *hdr;
+
+	res = create_and_send_ANNOUNCE_message2(sink, timeout, szSessionNumber);
+
+	// If authentication error occured its okay, just send with authentication parameters.
+	if (res == -ERR_UNAUTHORIZED) {
+		// parse authentication parameters such as nonce etc.
+		if (gst_rtsp_message_get_header(sink->responce, GST_RTSP_HDR_WWW_AUTHENTICATE, &hdr, 0) == GST_RTSP_OK) {
+			gchar *start;
+
+			if (sink->debug)
+				g_print("HEADER: %s", hdr);
+
+			/* Skip whitespace at the start of the string */
+			for (start = hdr; start[0] != '\0' && g_ascii_isspace(start[0]); start++);
+
+			// check if we should authenticate...
+			if (g_ascii_strncasecmp(start, "digest ", 7) == 0)
+				g_print("Authentication required.\n");
+
+			if (sink->authentication_name == NULL) {
+				goto beach; 
+			}
+
+
+			gst_rtsp_connection_clear_auth_params(sink->conn);
+			gst_rtspsrc_parse_digest_challenge(sink->conn, start + g_utf8_strlen("Digest ", 7), FALSE);
+
+
+			/* Pass the credentials to the connection to try on the next request */
+			res = gst_rtsp_connection_set_auth(sink->conn, GST_RTSP_AUTH_DIGEST, sink->authentication_name, sink->authentication_pass);
+			/* INVAL indicates an invalid username/passwd were supplied, so we'll just
+			* ignore it and end up retrying later */
+			/*if (res == GST_RTSP_OK || res == GST_RTSP_EINVAL) {
+				g_print("Attempting %s authentication", gst_rtsp_auth_method_to_string(method));
+			}*/
+
+			res = create_and_send_ANNOUNCE_message2(sink, &timeout, szSessionNumber);
+
+			if (res == -ERR_UNAUTHORIZED) {
+				g_print("Authentication failed, wrong user/password.\n"); 
+			}
+
+			gst_rtsp_connection_clear_auth_params(sink->conn);
+
+		}
+
+		
+	}
+
+	return res;
+beach:
+	return ERR_UNAUTHORIZED;
+
+}
+static gint  create_and_send_ANNOUNCE_message2(GstRTSPsink* sink, GTimeVal *timeout, char **szSessionNumber) {
 
 	const gchar *url_client_ip_str = "0.0.0.0";//"192.168.2.104";
 	const gchar *url_server_str_full = g_strdup_printf("rtsp://%s:%d/%s", sink->host, sink->port, sink->stream_name);	//"rtsp://192.168.2.108:1935/live/1";
@@ -562,7 +755,7 @@ static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeo
 
 
 
-	method = GST_RTSP_ANNOUNCE;
+	method = GST_RTSP_ANNOUNCE ;
 	res = gst_rtsp_message_init_request(&msg, method, url_server_str_full);
 	if (res < 0)
 		return res;
@@ -571,6 +764,7 @@ static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeo
 	if (sink->user_agent)
 		gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_USER_AGENT, sink->user_agent);
 
+	
 	gst_rtsp_message_add_header(&msg, GST_RTSP_HDR_CONTENT_TYPE, "application/sdp");
 
 	// allocate sdp messege buffer... 
@@ -627,6 +821,8 @@ static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeo
 
 	res = gst_rtsp_message_set_body(&msg, sdp_str, size);
 
+	sink->responce = &msg;
+
 	// Send our packet receive server answer and check some basic checks.
 	if ((res = sendReceiveAndCheck(sink->conn, timeout, &msg, sink->debug)) != GST_RTSP_OK) {
 		return res;
@@ -634,6 +830,7 @@ static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeo
 
 	// get session number 
 	*szSessionNumber = extractSessionNumberFromMessage(&msg);
+
 
 	return GST_RTSP_OK;
 }
@@ -713,17 +910,23 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	
 	// run the RTSP sequence.
 	res = create_and_send_OPTION_message(sink, &timeout);
+	if (res != GST_RTSP_OK) goto beach;
 	res = create_and_send_ANNOUNCE_message(sink, &timeout, &szSessionNumber); 
+	if (res != GST_RTSP_OK) goto beach;
 	res = create_and_send_SETUP_message(sink, &timeout, szSessionNumber); 
+	if (res != GST_RTSP_OK) goto beach;
 	res = create_and_send_RECORD_message(sink, &timeout, szSessionNumber);
-
+	if (res != GST_RTSP_OK) goto beach;
 
 	//  if everything went OK lets setup UDP/RTP connection to server.
 	res = setRTPConnectionToServer(sink);
+	if (res != GST_RTSP_OK) goto beach;
+
 	
 	return GST_FLOW_OK;
 
-	// free message and exit.
+beach:
+	// exit with error
 	return GST_FLOW_ERROR;
 
 }
@@ -815,6 +1018,15 @@ gst_rtspsink_set_property (GObject * object, guint prop_id,
 	case PROP_PORT:
 		filter->port = g_value_get_int(value);
 		break;
+
+	case PROP_AUTH_NAME:
+		filter->authentication_name = g_strdup(g_value_get_string(value));
+		break;
+	case PROP_AUTH_PASS:
+		filter->authentication_pass = g_strdup(g_value_get_string(value));
+		break;
+
+
 
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
