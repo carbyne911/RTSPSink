@@ -111,7 +111,11 @@ struct _GstRTSPsink
 
   // get this data from upstream pads capabilites.
   int payload, clock_rate;
-  gchar * encoding_name;
+  const gchar * encoding_name;
+
+  const gchar * authentication_name;
+  const gchar * authentication_pass;
+
 };
 
 
