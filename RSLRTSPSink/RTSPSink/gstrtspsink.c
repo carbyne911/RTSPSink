@@ -491,7 +491,7 @@ static gint create_and_send_RECORD_message(GstRTSPsink* sink, GTimeVal *timeout,
 
 
 	// Send our packet receive server answer and check some basic checks.
-	if ((res = sendReceiveAndCheck(sink->conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
+	if ((res = sendReceiveAndCheck(sink->conn, timeout, &msg, sink->debug)) != GST_RTSP_OK) {
 		return res;
 	}
 
@@ -527,7 +527,7 @@ static gint create_and_send_SETUP_message(GstRTSPsink* sink, GTimeVal *timeout, 
 
 
 	// Send our packet receive server answer and check some basic checks.
-	if ((res = sendReceiveAndCheck(sink->conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
+	if ((res = sendReceiveAndCheck(sink->conn, timeout, &msg, sink->debug)) != GST_RTSP_OK) {
 		return res;
 	}
 
@@ -628,14 +628,13 @@ static gint  create_and_send_ANNOUNCE_message(GstRTSPsink* sink, GTimeVal *timeo
 	res = gst_rtsp_message_set_body(&msg, sdp_str, size);
 
 	// Send our packet receive server answer and check some basic checks.
-	if ((res = sendReceiveAndCheck(sink->conn, &timeout, &msg, sink->debug)) != GST_RTSP_OK) {
+	if ((res = sendReceiveAndCheck(sink->conn, timeout, &msg, sink->debug)) != GST_RTSP_OK) {
 		return res;
 	}
 
 	// get session number 
 	*szSessionNumber = extractSessionNumberFromMessage(&msg);
 
-beach:
 	return GST_RTSP_OK;
 }
 static gint  create_and_send_OPTION_message(GstRTSPsink* sink, GTimeVal *timeout) {
@@ -690,12 +689,11 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 {
 	GstRTSPsink *sink = (GstRTSPsink*)bsink;
 	GstRTSPResult res; 
-	GstRTSPConnection *conn = sink->conn ;
-	GstRTSPUrl * url ;
+	//GstRTSPConnection *conn = sink->conn ;
 	GTimeVal timeout;
-	GstRTSPMessage  msg = {0};
-	GstSDPMessage *sdp ;
-	GstRTSPMethod method;
+	char *szSessionNumber;
+
+	//GstRTSPMessage  msg = {0};
 
 	//return GST_RTSP_OK;
 
@@ -705,10 +703,9 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 	timeout.tv_sec = 1; // set timeout to one second.
 	timeout.tv_usec = 0;
 	sink->user_agent = NULL;// "iReporty\n\0";
-	sink->debug = TRUE;
-	guint num_ports = 1;
-	guint rtp_port = 5006;
-	char *szSessionNumber; 
+	
+	//guint num_ports = 1;
+	guint rtp_port = 0;// 5006;
 
 	
 	// if unrolling close RTSP/TCP connection
@@ -719,33 +716,10 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 
 	}
 	
-	////////////////////// OPTINS START  //////////////////////////////////////////////////////////
-
-
 	res = create_and_send_OPTION_message(sink, &timeout);
-
-
-	////////////////////// OPTINS END  //////////////////////////////////////////////////////////
-	////////////////////// ANNOUNCE START //////////////////////////////////////////////////////////
-	
 	res = create_and_send_ANNOUNCE_message(sink, &timeout, &szSessionNumber); 
-
-
-
-////////////////////// ANNOUNCE END //////////////////////////////////////////////////////////
-	
-////////////////////// SETUP START //////////////////////////////////////////////////////////
-	
-	res = create_and_send_SETUP_message(sink, &timeout, &szSessionNumber); 
-
-
-		////////////////////// SETUP END //////////////////////////////////////////////////////////
-		////////////////////// RECORD START //////////////////////////////////////////////////////////
-
-	res = create_and_send_RECORD_message(sink, &timeout, &szSessionNumber);
-
-	////////////////////// RECORD END //////////////////////////////////////////////////////////
-
+	res = create_and_send_SETUP_message(sink, &timeout, szSessionNumber); 
+	res = create_and_send_RECORD_message(sink, &timeout, szSessionNumber);
 
 
 	//  if everything went OK lets setup UDP/RTP connection to server.
@@ -755,7 +729,6 @@ static GstFlowReturn gst_rtsp_sink_preroll(GstBaseSink * bsink, GstBuffer * buff
 
 	return GST_FLOW_OK;
 
-beach:
 	// free message and exit.
 	return GST_FLOW_ERROR;
 
@@ -836,6 +809,7 @@ gst_rtspsink_set_property (GObject * object, guint prop_id,
   switch (prop_id) {
     case PROP_SILENT:
       filter->silent = g_value_get_boolean (value);
+	  filter->debug = !filter->silent ; 
       break;
 	case PROP_HOST:
 		filter->host = g_strdup(g_value_get_string(value));
